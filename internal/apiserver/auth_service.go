@@ -107,7 +107,7 @@ func (svc *Services) Refresh(ctx context.Context, req *connect.Request[pb.Refres
 	if token == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("登录已过期，请重新登录"))
 	}
-	userID, err := svc.DB.ValidateRefreshToken(ctx, token)
+	userID, err := svc.DB.ValidateRefreshTokenForClient(ctx, token, "web")
 	if err != nil {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("登录已过期，请重新登录"))
 	}
@@ -135,6 +135,132 @@ func (svc *Services) Refresh(ctx context.Context, req *connect.Request[pb.Refres
 	})
 	setRefreshCookie(resp.Header(), pair.RefreshToken, req.Header())
 	return resp, nil
+}
+
+func (svc *Services) MobileLogin(ctx context.Context, req *connect.Request[pb.MobileLoginRequest]) (*connect.Response[pb.MobileLoginResponse], error) {
+	in := req.Msg
+	username := strings.TrimSpace(in.GetUsername())
+	password := in.GetPassword()
+	deviceID := strings.TrimSpace(in.GetDeviceId())
+	deviceName := strings.TrimSpace(in.GetDeviceName())
+	if username == "" || password == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("请输入账号和密码"))
+	}
+	if deviceID == "" || len(deviceID) > 128 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("设备标识无效"))
+	}
+	if len(deviceName) > 128 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("设备名称过长"))
+	}
+	remote := req.Peer().Addr
+	if dec, limited := svc.LoginLimiter.Check(username, remote); limited {
+		svc.logAuth("warn", "auth_mobile_login_limited", username, remote, 0, slog.String("scope", dec.Scope), slog.Time("locked_until", dec.Until))
+		return nil, connect.NewError(connect.CodeResourceExhausted, errors.New("登录尝试过多，请稍后再试"))
+	}
+	user, err := svc.DB.GetUserByUsername(ctx, username)
+	if err != nil {
+		if errors.Is(err, store.ErrUserNotFound) {
+			_ = bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(password))
+			return svc.rejectInvalidMobileLogin(username, remote, 0)
+		}
+		return nil, mapErr(err)
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		return svc.rejectInvalidMobileLogin(username, remote, user.ID)
+	}
+	if user.Status != "active" {
+		svc.logAuth("warn", "auth_mobile_login_disabled", username, remote, user.ID)
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("账号已被禁用"))
+	}
+	resp, err := svc.newMobileTokenResponse(ctx, user, deviceID, deviceName)
+	if err != nil {
+		return nil, err
+	}
+	svc.LoginLimiter.RecordSuccess(username)
+	svc.logAuth("info", "auth_mobile_login_success", username, remote, user.ID, slog.String("device_id", deviceID))
+	return resp, nil
+}
+
+func (svc *Services) rejectInvalidMobileLogin(username, remote string, userID int64) (*connect.Response[pb.MobileLoginResponse], error) {
+	if dec, limited := svc.LoginLimiter.RecordFailure(username, remote); limited {
+		svc.logAuth("warn", "auth_mobile_login_limited", username, remote, userID, slog.String("scope", dec.Scope), slog.Time("locked_until", dec.Until))
+		return nil, connect.NewError(connect.CodeResourceExhausted, errors.New("登录尝试过多，请稍后再试"))
+	}
+	svc.logAuth("warn", "auth_mobile_login_failed", username, remote, userID)
+	return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("账号或密码不正确"))
+}
+
+func (svc *Services) MobileRefresh(ctx context.Context, req *connect.Request[pb.MobileRefreshRequest]) (*connect.Response[pb.MobileRefreshResponse], error) {
+	token := strings.TrimSpace(req.Msg.GetRefreshToken())
+	if token == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("登录已过期，请重新登录"))
+	}
+	userID, err := svc.DB.ValidateRefreshTokenForClient(ctx, token, "mobile")
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("登录已过期，请重新登录"))
+	}
+	user, err := svc.DB.GetUserByID(ctx, userID)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	if user.Status != "active" {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("账号已被禁用"))
+	}
+	count, err := svc.DB.CountAccountsByUser(ctx, user.ID)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	pair, err := svc.JWT.GenerateTokenPair(user.ID, user.Role)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	deviceID, deviceName, err := svc.DB.RefreshTokenDevice(ctx, token)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("登录已过期，请重新登录"))
+	}
+	refreshExpiry := time.Now().Add(auth.RefreshTokenDuration)
+	if err := svc.DB.RotateRefreshTokenSession(ctx, token, pair.RefreshToken, refreshExpiry, "mobile", deviceID, deviceName); err != nil {
+		return nil, mapErr(err)
+	}
+	return connect.NewResponse(&pb.MobileRefreshResponse{
+		AccessToken:      pair.AccessToken,
+		RefreshToken:     pair.RefreshToken,
+		AccessExpiresAt:  timestamppb.New(pair.ExpiresAt),
+		RefreshExpiresAt: timestamppb.New(refreshExpiry),
+		User:             userToProto(user, count),
+	}), nil
+}
+
+func (svc *Services) MobileLogout(ctx context.Context, req *connect.Request[pb.MobileLogoutRequest]) (*connect.Response[pb.MobileLogoutResponse], error) {
+	token := strings.TrimSpace(req.Msg.GetRefreshToken())
+	if token != "" {
+		if err := svc.DB.RevokeRefreshTokenForClient(ctx, token, "mobile"); err != nil && svc.Log != nil {
+			svc.Log.Warn("revoke mobile refresh token during logout failed", "err", err)
+		}
+	}
+	return connect.NewResponse(&pb.MobileLogoutResponse{}), nil
+}
+
+func (svc *Services) newMobileTokenResponse(ctx context.Context, user *store.User, deviceID, deviceName string) (*connect.Response[pb.MobileLoginResponse], error) {
+	count, err := svc.DB.CountAccountsByUser(ctx, user.ID)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	pair, err := svc.JWT.GenerateTokenPair(user.ID, user.Role)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	refreshExpiry := time.Now().Add(auth.RefreshTokenDuration)
+	if err := svc.DB.SaveRefreshTokenSession(ctx, user.ID, pair.RefreshToken, refreshExpiry, "mobile", deviceID, deviceName); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return connect.NewResponse(&pb.MobileLoginResponse{
+		AccessToken:      pair.AccessToken,
+		RefreshToken:     pair.RefreshToken,
+		AccessExpiresAt:  timestamppb.New(pair.ExpiresAt),
+		RefreshExpiresAt: timestamppb.New(refreshExpiry),
+		User:             userToProto(user, count),
+	}), nil
 }
 
 func (svc *Services) Logout(ctx context.Context, req *connect.Request[pb.LogoutRequest]) (*connect.Response[pb.LogoutResponse], error) {

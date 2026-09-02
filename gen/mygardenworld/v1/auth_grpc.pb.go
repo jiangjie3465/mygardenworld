@@ -19,10 +19,13 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AuthService_Login_FullMethodName   = "/mygardenworld.v1.AuthService/Login"
-	AuthService_Refresh_FullMethodName = "/mygardenworld.v1.AuthService/Refresh"
-	AuthService_Logout_FullMethodName  = "/mygardenworld.v1.AuthService/Logout"
-	AuthService_GetMe_FullMethodName   = "/mygardenworld.v1.AuthService/GetMe"
+	AuthService_Login_FullMethodName         = "/mygardenworld.v1.AuthService/Login"
+	AuthService_Refresh_FullMethodName       = "/mygardenworld.v1.AuthService/Refresh"
+	AuthService_Logout_FullMethodName        = "/mygardenworld.v1.AuthService/Logout"
+	AuthService_MobileLogin_FullMethodName   = "/mygardenworld.v1.AuthService/MobileLogin"
+	AuthService_MobileRefresh_FullMethodName = "/mygardenworld.v1.AuthService/MobileRefresh"
+	AuthService_MobileLogout_FullMethodName  = "/mygardenworld.v1.AuthService/MobileLogout"
+	AuthService_GetMe_FullMethodName         = "/mygardenworld.v1.AuthService/GetMe"
 )
 
 // AuthServiceClient is the client API for AuthService service.
@@ -32,6 +35,12 @@ type AuthServiceClient interface {
 	Login(ctx context.Context, in *LoginRequest, opts ...grpc.CallOption) (*LoginResponse, error)
 	Refresh(ctx context.Context, in *RefreshRequest, opts ...grpc.CallOption) (*RefreshResponse, error)
 	Logout(ctx context.Context, in *LogoutRequest, opts ...grpc.CallOption) (*LogoutResponse, error)
+	// Mobile authentication returns refresh tokens in the response body rather
+	// than using browser cookies. Refresh tokens are device-scoped and rotated
+	// on every refresh.
+	MobileLogin(ctx context.Context, in *MobileLoginRequest, opts ...grpc.CallOption) (*MobileLoginResponse, error)
+	MobileRefresh(ctx context.Context, in *MobileRefreshRequest, opts ...grpc.CallOption) (*MobileRefreshResponse, error)
+	MobileLogout(ctx context.Context, in *MobileLogoutRequest, opts ...grpc.CallOption) (*MobileLogoutResponse, error)
 	GetMe(ctx context.Context, in *GetMeRequest, opts ...grpc.CallOption) (*GetMeResponse, error)
 }
 
@@ -73,6 +82,36 @@ func (c *authServiceClient) Logout(ctx context.Context, in *LogoutRequest, opts 
 	return out, nil
 }
 
+func (c *authServiceClient) MobileLogin(ctx context.Context, in *MobileLoginRequest, opts ...grpc.CallOption) (*MobileLoginResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MobileLoginResponse)
+	err := c.cc.Invoke(ctx, AuthService_MobileLogin_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) MobileRefresh(ctx context.Context, in *MobileRefreshRequest, opts ...grpc.CallOption) (*MobileRefreshResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MobileRefreshResponse)
+	err := c.cc.Invoke(ctx, AuthService_MobileRefresh_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) MobileLogout(ctx context.Context, in *MobileLogoutRequest, opts ...grpc.CallOption) (*MobileLogoutResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MobileLogoutResponse)
+	err := c.cc.Invoke(ctx, AuthService_MobileLogout_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *authServiceClient) GetMe(ctx context.Context, in *GetMeRequest, opts ...grpc.CallOption) (*GetMeResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetMeResponse)
@@ -90,6 +129,12 @@ type AuthServiceServer interface {
 	Login(context.Context, *LoginRequest) (*LoginResponse, error)
 	Refresh(context.Context, *RefreshRequest) (*RefreshResponse, error)
 	Logout(context.Context, *LogoutRequest) (*LogoutResponse, error)
+	// Mobile authentication returns refresh tokens in the response body rather
+	// than using browser cookies. Refresh tokens are device-scoped and rotated
+	// on every refresh.
+	MobileLogin(context.Context, *MobileLoginRequest) (*MobileLoginResponse, error)
+	MobileRefresh(context.Context, *MobileRefreshRequest) (*MobileRefreshResponse, error)
+	MobileLogout(context.Context, *MobileLogoutRequest) (*MobileLogoutResponse, error)
 	GetMe(context.Context, *GetMeRequest) (*GetMeResponse, error)
 }
 
@@ -108,6 +153,15 @@ func (UnimplementedAuthServiceServer) Refresh(context.Context, *RefreshRequest) 
 }
 func (UnimplementedAuthServiceServer) Logout(context.Context, *LogoutRequest) (*LogoutResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Logout not implemented")
+}
+func (UnimplementedAuthServiceServer) MobileLogin(context.Context, *MobileLoginRequest) (*MobileLoginResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method MobileLogin not implemented")
+}
+func (UnimplementedAuthServiceServer) MobileRefresh(context.Context, *MobileRefreshRequest) (*MobileRefreshResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method MobileRefresh not implemented")
+}
+func (UnimplementedAuthServiceServer) MobileLogout(context.Context, *MobileLogoutRequest) (*MobileLogoutResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method MobileLogout not implemented")
 }
 func (UnimplementedAuthServiceServer) GetMe(context.Context, *GetMeRequest) (*GetMeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetMe not implemented")
@@ -186,6 +240,60 @@ func _AuthService_Logout_Handler(srv interface{}, ctx context.Context, dec func(
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AuthService_MobileLogin_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MobileLoginRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).MobileLogin(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_MobileLogin_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).MobileLogin(ctx, req.(*MobileLoginRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_MobileRefresh_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MobileRefreshRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).MobileRefresh(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_MobileRefresh_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).MobileRefresh(ctx, req.(*MobileRefreshRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_MobileLogout_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MobileLogoutRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).MobileLogout(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_MobileLogout_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).MobileLogout(ctx, req.(*MobileLogoutRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AuthService_GetMe_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetMeRequest)
 	if err := dec(in); err != nil {
@@ -222,6 +330,18 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Logout",
 			Handler:    _AuthService_Logout_Handler,
+		},
+		{
+			MethodName: "MobileLogin",
+			Handler:    _AuthService_MobileLogin_Handler,
+		},
+		{
+			MethodName: "MobileRefresh",
+			Handler:    _AuthService_MobileRefresh_Handler,
+		},
+		{
+			MethodName: "MobileLogout",
+			Handler:    _AuthService_MobileLogout_Handler,
 		},
 		{
 			MethodName: "GetMe",

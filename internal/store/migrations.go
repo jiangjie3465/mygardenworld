@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 6
+const currentSchemaVersion = 7
 
 var (
 	ErrUnversionedDatabase = errors.New("unversioned database is not supported")
@@ -233,8 +233,68 @@ CREATE INDEX idx_redeem_outbox_pending ON redeem_exchange_outbox(status, next_at
 		sql: `
 ALTER TABLE redeem_sources DROP COLUMN accepted_count;
 ALTER TABLE redeem_sources DROP COLUMN invalid_count;
-`,
+		`,
 	},
+	{
+		version: 7,
+		name:    "mobile token sessions",
+		apply:   migrateMobileTokensV7,
+	},
+}
+
+func migrateMobileTokensV7(ctx context.Context, tx *sql.Tx) error {
+	var tableCount int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'refresh_tokens'`,
+	).Scan(&tableCount); err != nil {
+		return err
+	}
+	if tableCount == 0 {
+		// A real v1 baseline creates this table. Some historical fixtures start
+		// at a later version with only the table they exercise; create the
+		// current token table so the resulting schema remains usable.
+		if _, err := tx.ExecContext(ctx, `
+CREATE TABLE refresh_tokens (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       INTEGER NOT NULL,
+    token_hash    TEXT    NOT NULL UNIQUE,
+    expires_at    DATETIME NOT NULL,
+    client_type   TEXT    NOT NULL DEFAULT 'web' CHECK(client_type IN ('web', 'mobile')),
+    device_id     TEXT    NOT NULL DEFAULT '',
+    device_name   TEXT    NOT NULL DEFAULT '',
+    last_used_at  DATETIME,
+    created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_refresh_user ON refresh_tokens(user_id);
+CREATE INDEX idx_refresh_mobile_device ON refresh_tokens(client_type, device_id);
+`); err != nil {
+			return err
+		}
+		return nil
+	}
+	for _, column := range []struct {
+		name string
+		sql  string
+	}{
+		{name: "client_type", sql: `ALTER TABLE refresh_tokens ADD COLUMN client_type TEXT NOT NULL DEFAULT 'web' CHECK(client_type IN ('web', 'mobile'))`},
+		{name: "device_id", sql: `ALTER TABLE refresh_tokens ADD COLUMN device_id TEXT NOT NULL DEFAULT ''`},
+		{name: "device_name", sql: `ALTER TABLE refresh_tokens ADD COLUMN device_name TEXT NOT NULL DEFAULT ''`},
+		{name: "last_used_at", sql: `ALTER TABLE refresh_tokens ADD COLUMN last_used_at DATETIME`},
+	} {
+		var count int
+		if err := tx.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM pragma_table_info('refresh_tokens') WHERE name = ?`, column.name,
+		).Scan(&count); err != nil {
+			return err
+		}
+		if count == 0 {
+			if _, err := tx.ExecContext(ctx, column.sql); err != nil {
+				return err
+			}
+		}
+	}
+	_, err := tx.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_refresh_mobile_device ON refresh_tokens(client_type, device_id)`)
+	return err
 }
 
 func applyMigrations(ctx context.Context, db *sql.DB) error {

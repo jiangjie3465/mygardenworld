@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file mygardenworld/v1/auth.proto.
  */
 export const file_mygardenworld_v1_auth: GenFile = /*@__PURE__*/
-  fileDesc("ChtteWdhcmRlbndvcmxkL3YxL2F1dGgucHJvdG8SEG15Z2FyZGVud29ybGQudjEimwIKBFVzZXISCgoCaWQYASABKAMSEAoIdXNlcm5hbWUYAiABKAkSDQoFZW1haWwYAyABKAkSKAoEcm9sZRgEIAEoDjIaLm15Z2FyZGVud29ybGQudjEuVXNlclJvbGUSFAoMbWF4X2FjY291bnRzGAUgASgFEhgKEGN1cnJlbnRfYWNjb3VudHMYBiABKAUSLAoGc3RhdHVzGAcgASgOMhwubXlnYXJkZW53b3JsZC52MS5Vc2VyU3RhdHVzEi4KCmNyZWF0ZWRfYXQYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIjIKDExvZ2luUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCRIQCghwYXNzd29yZBgCIAEoCSJLCg1Mb2dpblJlc3BvbnNlEhQKDGFjY2Vzc190b2tlbhgBIAEoCRIkCgR1c2VyGAIgASgLMhYubXlnYXJkZW53b3JsZC52MS5Vc2VyIhAKDlJlZnJlc2hSZXF1ZXN0Ik0KD1JlZnJlc2hSZXNwb25zZRIUCgxhY2Nlc3NfdG9rZW4YASABKAkSJAoEdXNlchgCIAEoCzIWLm15Z2FyZGVud29ybGQudjEuVXNlciIPCg1Mb2dvdXRSZXF1ZXN0IhAKDkxvZ291dFJlc3BvbnNlIg4KDEdldE1lUmVxdWVzdCI1Cg1HZXRNZVJlc3BvbnNlEiQKBHVzZXIYASABKAsyFi5teWdhcmRlbndvcmxkLnYxLlVzZXIqTgoIVXNlclJvbGUSGQoVVVNFUl9ST0xFX1VOU1BFQ0lGSUVEEAASEgoOVVNFUl9ST0xFX1VTRVIQARITCg9VU0VSX1JPTEVfQURNSU4QAipbCgpVc2VyU3RhdHVzEhsKF1VTRVJfU1RBVFVTX1VOU1BFQ0lGSUVEEAASFgoSVVNFUl9TVEFUVVNfQUNUSVZFEAESGAoUVVNFUl9TVEFUVVNfRElTQUJMRUQQAjK+AgoLQXV0aFNlcnZpY2USSAoFTG9naW4SHi5teWdhcmRlbndvcmxkLnYxLkxvZ2luUmVxdWVzdBofLm15Z2FyZGVud29ybGQudjEuTG9naW5SZXNwb25zZRJOCgdSZWZyZXNoEiAubXlnYXJkZW53b3JsZC52MS5SZWZyZXNoUmVxdWVzdBohLm15Z2FyZGVud29ybGQudjEuUmVmcmVzaFJlc3BvbnNlEksKBkxvZ291dBIfLm15Z2FyZGVud29ybGQudjEuTG9nb3V0UmVxdWVzdBogLm15Z2FyZGVud29ybGQudjEuTG9nb3V0UmVzcG9uc2USSAoFR2V0TWUSHi5teWdhcmRlbndvcmxkLnYxLkdldE1lUmVxdWVzdBofLm15Z2FyZGVud29ybGQudjEuR2V0TWVSZXNwb25zZUKCAQoUY29tLm15Z2FyZGVud29ybGQudjFCCUF1dGhQcm90b1ABogIDTVhYqgIQTXlnYXJkZW53b3JsZC5WMcoCEE15Z2FyZGVud29ybGRcVjHiAhxNeWdhcmRlbndvcmxkXFYxXEdQQk1ldGFkYXRh6gIRTXlnYXJkZW53b3JsZDo6VjFiBnByb3RvMw", [file_google_protobuf_timestamp]);
+  fileDesc("ChtteWdhcmRlbndvcmxkL3YxL2F1dGgucHJvdG8SEG15Z2FyZGVud29ybGQudjEimwIKBFVzZXISCgoCaWQYASABKAMSEAoIdXNlcm5hbWUYAiABKAkSDQoFZW1haWwYAyABKAkSKAoEcm9sZRgEIAEoDjIaLm15Z2FyZGVud29ybGQudjEuVXNlclJvbGUSFAoMbWF4X2FjY291bnRzGAUgASgFEhgKEGN1cnJlbnRfYWNjb3VudHMYBiABKAUSLAoGc3RhdHVzGAcgASgOMhwubXlnYXJkZW53b3JsZC52MS5Vc2VyU3RhdHVzEi4KCmNyZWF0ZWRfYXQYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIjIKDExvZ2luUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCRIQCghwYXNzd29yZBgCIAEoCSJLCg1Mb2dpblJlc3BvbnNlEhQKDGFjY2Vzc190b2tlbhgBIAEoCRIkCgR1c2VyGAIgASgLMhYubXlnYXJkZW53b3JsZC52MS5Vc2VyIhAKDlJlZnJlc2hSZXF1ZXN0Ik0KD1JlZnJlc2hSZXNwb25zZRIUCgxhY2Nlc3NfdG9rZW4YASABKAkSJAoEdXNlchgCIAEoCzIWLm15Z2FyZGVud29ybGQudjEuVXNlciIPCg1Mb2dvdXRSZXF1ZXN0IhAKDkxvZ291dFJlc3BvbnNlImAKEk1vYmlsZUxvZ2luUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCRIQCghwYXNzd29yZBgCIAEoCRIRCglkZXZpY2VfaWQYAyABKAkSEwoLZGV2aWNlX25hbWUYBCABKAki1wEKE01vYmlsZUxvZ2luUmVzcG9uc2USFAoMYWNjZXNzX3Rva2VuGAEgASgJEhUKDXJlZnJlc2hfdG9rZW4YAiABKAkSNQoRYWNjZXNzX2V4cGlyZXNfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjYKEnJlZnJlc2hfZXhwaXJlc19hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJAoEdXNlchgFIAEoCzIWLm15Z2FyZGVud29ybGQudjEuVXNlciItChRNb2JpbGVSZWZyZXNoUmVxdWVzdBIVCg1yZWZyZXNoX3Rva2VuGAEgASgJItkBChVNb2JpbGVSZWZyZXNoUmVzcG9uc2USFAoMYWNjZXNzX3Rva2VuGAEgASgJEhUKDXJlZnJlc2hfdG9rZW4YAiABKAkSNQoRYWNjZXNzX2V4cGlyZXNfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjYKEnJlZnJlc2hfZXhwaXJlc19hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJAoEdXNlchgFIAEoCzIWLm15Z2FyZGVud29ybGQudjEuVXNlciIsChNNb2JpbGVMb2dvdXRSZXF1ZXN0EhUKDXJlZnJlc2hfdG9rZW4YASABKAkiFgoUTW9iaWxlTG9nb3V0UmVzcG9uc2UiDgoMR2V0TWVSZXF1ZXN0IjUKDUdldE1lUmVzcG9uc2USJAoEdXNlchgBIAEoCzIWLm15Z2FyZGVud29ybGQudjEuVXNlcipOCghVc2VyUm9sZRIZChVVU0VSX1JPTEVfVU5TUEVDSUZJRUQQABISCg5VU0VSX1JPTEVfVVNFUhABEhMKD1VTRVJfUk9MRV9BRE1JThACKlsKClVzZXJTdGF0dXMSGwoXVVNFUl9TVEFUVVNfVU5TUEVDSUZJRUQQABIWChJVU0VSX1NUQVRVU19BQ1RJVkUQARIYChRVU0VSX1NUQVRVU19ESVNBQkxFRBACMtsECgtBdXRoU2VydmljZRJICgVMb2dpbhIeLm15Z2FyZGVud29ybGQudjEuTG9naW5SZXF1ZXN0Gh8ubXlnYXJkZW53b3JsZC52MS5Mb2dpblJlc3BvbnNlEk4KB1JlZnJlc2gSIC5teWdhcmRlbndvcmxkLnYxLlJlZnJlc2hSZXF1ZXN0GiEubXlnYXJkZW53b3JsZC52MS5SZWZyZXNoUmVzcG9uc2USSwoGTG9nb3V0Eh8ubXlnYXJkZW53b3JsZC52MS5Mb2dvdXRSZXF1ZXN0GiAubXlnYXJkZW53b3JsZC52MS5Mb2dvdXRSZXNwb25zZRJaCgtNb2JpbGVMb2dpbhIkLm15Z2FyZGVud29ybGQudjEuTW9iaWxlTG9naW5SZXF1ZXN0GiUubXlnYXJkZW53b3JsZC52MS5Nb2JpbGVMb2dpblJlc3BvbnNlEmAKDU1vYmlsZVJlZnJlc2gSJi5teWdhcmRlbndvcmxkLnYxLk1vYmlsZVJlZnJlc2hSZXF1ZXN0GicubXlnYXJkZW53b3JsZC52MS5Nb2JpbGVSZWZyZXNoUmVzcG9uc2USXQoMTW9iaWxlTG9nb3V0EiUubXlnYXJkZW53b3JsZC52MS5Nb2JpbGVMb2dvdXRSZXF1ZXN0GiYubXlnYXJkZW53b3JsZC52MS5Nb2JpbGVMb2dvdXRSZXNwb25zZRJICgVHZXRNZRIeLm15Z2FyZGVud29ybGQudjEuR2V0TWVSZXF1ZXN0Gh8ubXlnYXJkZW53b3JsZC52MS5HZXRNZVJlc3BvbnNlQoIBChRjb20ubXlnYXJkZW53b3JsZC52MUIJQXV0aFByb3RvUAGiAgNNWFiqAhBNeWdhcmRlbndvcmxkLlYxygIQTXlnYXJkZW53b3JsZFxWMeICHE15Z2FyZGVud29ybGRcVjFcR1BCTWV0YWRhdGHqAhFNeWdhcmRlbndvcmxkOjpWMWIGcHJvdG8z", [file_google_protobuf_timestamp]);
 
 /**
  * @generated from message mygardenworld.v1.User
@@ -177,6 +177,159 @@ export const LogoutResponseSchema: GenMessage<LogoutResponse> = /*@__PURE__*/
   messageDesc(file_mygardenworld_v1_auth, 6);
 
 /**
+ * @generated from message mygardenworld.v1.MobileLoginRequest
+ */
+export type MobileLoginRequest = Message<"mygardenworld.v1.MobileLoginRequest"> & {
+  /**
+   * @generated from field: string username = 1;
+   */
+  username: string;
+
+  /**
+   * @generated from field: string password = 2;
+   */
+  password: string;
+
+  /**
+   * @generated from field: string device_id = 3;
+   */
+  deviceId: string;
+
+  /**
+   * @generated from field: string device_name = 4;
+   */
+  deviceName: string;
+};
+
+/**
+ * Describes the message mygardenworld.v1.MobileLoginRequest.
+ * Use `create(MobileLoginRequestSchema)` to create a new message.
+ */
+export const MobileLoginRequestSchema: GenMessage<MobileLoginRequest> = /*@__PURE__*/
+  messageDesc(file_mygardenworld_v1_auth, 7);
+
+/**
+ * @generated from message mygardenworld.v1.MobileLoginResponse
+ */
+export type MobileLoginResponse = Message<"mygardenworld.v1.MobileLoginResponse"> & {
+  /**
+   * @generated from field: string access_token = 1;
+   */
+  accessToken: string;
+
+  /**
+   * @generated from field: string refresh_token = 2;
+   */
+  refreshToken: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp access_expires_at = 3;
+   */
+  accessExpiresAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp refresh_expires_at = 4;
+   */
+  refreshExpiresAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: mygardenworld.v1.User user = 5;
+   */
+  user?: User | undefined;
+};
+
+/**
+ * Describes the message mygardenworld.v1.MobileLoginResponse.
+ * Use `create(MobileLoginResponseSchema)` to create a new message.
+ */
+export const MobileLoginResponseSchema: GenMessage<MobileLoginResponse> = /*@__PURE__*/
+  messageDesc(file_mygardenworld_v1_auth, 8);
+
+/**
+ * @generated from message mygardenworld.v1.MobileRefreshRequest
+ */
+export type MobileRefreshRequest = Message<"mygardenworld.v1.MobileRefreshRequest"> & {
+  /**
+   * @generated from field: string refresh_token = 1;
+   */
+  refreshToken: string;
+};
+
+/**
+ * Describes the message mygardenworld.v1.MobileRefreshRequest.
+ * Use `create(MobileRefreshRequestSchema)` to create a new message.
+ */
+export const MobileRefreshRequestSchema: GenMessage<MobileRefreshRequest> = /*@__PURE__*/
+  messageDesc(file_mygardenworld_v1_auth, 9);
+
+/**
+ * @generated from message mygardenworld.v1.MobileRefreshResponse
+ */
+export type MobileRefreshResponse = Message<"mygardenworld.v1.MobileRefreshResponse"> & {
+  /**
+   * @generated from field: string access_token = 1;
+   */
+  accessToken: string;
+
+  /**
+   * @generated from field: string refresh_token = 2;
+   */
+  refreshToken: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp access_expires_at = 3;
+   */
+  accessExpiresAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp refresh_expires_at = 4;
+   */
+  refreshExpiresAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: mygardenworld.v1.User user = 5;
+   */
+  user?: User | undefined;
+};
+
+/**
+ * Describes the message mygardenworld.v1.MobileRefreshResponse.
+ * Use `create(MobileRefreshResponseSchema)` to create a new message.
+ */
+export const MobileRefreshResponseSchema: GenMessage<MobileRefreshResponse> = /*@__PURE__*/
+  messageDesc(file_mygardenworld_v1_auth, 10);
+
+/**
+ * @generated from message mygardenworld.v1.MobileLogoutRequest
+ */
+export type MobileLogoutRequest = Message<"mygardenworld.v1.MobileLogoutRequest"> & {
+  /**
+   * @generated from field: string refresh_token = 1;
+   */
+  refreshToken: string;
+};
+
+/**
+ * Describes the message mygardenworld.v1.MobileLogoutRequest.
+ * Use `create(MobileLogoutRequestSchema)` to create a new message.
+ */
+export const MobileLogoutRequestSchema: GenMessage<MobileLogoutRequest> = /*@__PURE__*/
+  messageDesc(file_mygardenworld_v1_auth, 11);
+
+/**
+ * @generated from message mygardenworld.v1.MobileLogoutResponse
+ */
+export type MobileLogoutResponse = Message<"mygardenworld.v1.MobileLogoutResponse"> & {
+};
+
+/**
+ * Describes the message mygardenworld.v1.MobileLogoutResponse.
+ * Use `create(MobileLogoutResponseSchema)` to create a new message.
+ */
+export const MobileLogoutResponseSchema: GenMessage<MobileLogoutResponse> = /*@__PURE__*/
+  messageDesc(file_mygardenworld_v1_auth, 12);
+
+/**
  * @generated from message mygardenworld.v1.GetMeRequest
  */
 export type GetMeRequest = Message<"mygardenworld.v1.GetMeRequest"> & {
@@ -187,7 +340,7 @@ export type GetMeRequest = Message<"mygardenworld.v1.GetMeRequest"> & {
  * Use `create(GetMeRequestSchema)` to create a new message.
  */
 export const GetMeRequestSchema: GenMessage<GetMeRequest> = /*@__PURE__*/
-  messageDesc(file_mygardenworld_v1_auth, 7);
+  messageDesc(file_mygardenworld_v1_auth, 13);
 
 /**
  * @generated from message mygardenworld.v1.GetMeResponse
@@ -204,7 +357,7 @@ export type GetMeResponse = Message<"mygardenworld.v1.GetMeResponse"> & {
  * Use `create(GetMeResponseSchema)` to create a new message.
  */
 export const GetMeResponseSchema: GenMessage<GetMeResponse> = /*@__PURE__*/
-  messageDesc(file_mygardenworld_v1_auth, 8);
+  messageDesc(file_mygardenworld_v1_auth, 14);
 
 /**
  * User is a platform user (not a game account).
@@ -287,6 +440,34 @@ export const AuthService: GenService<{
     methodKind: "unary";
     input: typeof LogoutRequestSchema;
     output: typeof LogoutResponseSchema;
+  },
+  /**
+   * Mobile authentication returns refresh tokens in the response body rather
+   * than using browser cookies. Refresh tokens are device-scoped and rotated
+   * on every refresh.
+   *
+   * @generated from rpc mygardenworld.v1.AuthService.MobileLogin
+   */
+  mobileLogin: {
+    methodKind: "unary";
+    input: typeof MobileLoginRequestSchema;
+    output: typeof MobileLoginResponseSchema;
+  },
+  /**
+   * @generated from rpc mygardenworld.v1.AuthService.MobileRefresh
+   */
+  mobileRefresh: {
+    methodKind: "unary";
+    input: typeof MobileRefreshRequestSchema;
+    output: typeof MobileRefreshResponseSchema;
+  },
+  /**
+   * @generated from rpc mygardenworld.v1.AuthService.MobileLogout
+   */
+  mobileLogout: {
+    methodKind: "unary";
+    input: typeof MobileLogoutRequestSchema;
+    output: typeof MobileLogoutResponseSchema;
   },
   /**
    * @generated from rpc mygardenworld.v1.AuthService.GetMe

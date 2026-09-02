@@ -101,6 +101,106 @@ func TestLoginSetsStrictRefreshCookie(t *testing.T) {
 	}
 }
 
+func TestMobileLoginReturnsBodyTokensAndDeviceMetadata(t *testing.T) {
+	ctx := context.Background()
+	svc := newAuthTestService(t, LoginLimiterConfig{UserFailures: 100, IPFailures: 100})
+	createTestUser(t, ctx, svc.DB, "owner", "owner@example.test", "ValidPass123!", "active")
+
+	resp, err := svc.MobileLogin(ctx, connect.NewRequest(&pb.MobileLoginRequest{
+		Username:   "owner",
+		Password:   "ValidPass123!",
+		DeviceId:   "android-emulator-1",
+		DeviceName: "Pixel API 36",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Msg.GetAccessToken() == "" || resp.Msg.GetRefreshToken() == "" {
+		t.Fatal("mobile login did not return both tokens")
+	}
+	if cookie := resp.Header().Get("Set-Cookie"); cookie != "" {
+		t.Fatalf("mobile login unexpectedly set a cookie: %q", cookie)
+	}
+	deviceID, deviceName, err := svc.DB.RefreshTokenDevice(ctx, resp.Msg.GetRefreshToken())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deviceID != "android-emulator-1" || deviceName != "Pixel API 36" {
+		t.Fatalf("stored device=(%q,%q)", deviceID, deviceName)
+	}
+	if _, err := svc.DB.ValidateRefreshTokenForClient(ctx, resp.Msg.GetRefreshToken(), "web"); !errors.Is(err, store.ErrTokenInvalid) {
+		t.Fatalf("mobile token accepted as web token: %v", err)
+	}
+}
+
+func TestMobileRefreshRotatesTokenAndPreservesDevice(t *testing.T) {
+	ctx := context.Background()
+	svc := newAuthTestService(t, LoginLimiterConfig{UserFailures: 100, IPFailures: 100})
+	createTestUser(t, ctx, svc.DB, "owner", "owner@example.test", "ValidPass123!", "active")
+	login, err := svc.MobileLogin(ctx, connect.NewRequest(&pb.MobileLoginRequest{
+		Username: "owner", Password: "ValidPass123!", DeviceId: "device-1", DeviceName: "Emulator",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldToken := login.Msg.GetRefreshToken()
+	refresh, err := svc.MobileRefresh(ctx, connect.NewRequest(&pb.MobileRefreshRequest{RefreshToken: oldToken}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refresh.Msg.GetRefreshToken() == "" || refresh.Msg.GetRefreshToken() == oldToken {
+		t.Fatal("mobile refresh did not rotate refresh token")
+	}
+	if _, err := svc.DB.ValidateRefreshTokenForClient(ctx, oldToken, "mobile"); !errors.Is(err, store.ErrTokenInvalid) {
+		t.Fatalf("old mobile token remained valid: %v", err)
+	}
+	deviceID, deviceName, err := svc.DB.RefreshTokenDevice(ctx, refresh.Msg.GetRefreshToken())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deviceID != "device-1" || deviceName != "Emulator" {
+		t.Fatalf("rotated device=(%q,%q)", deviceID, deviceName)
+	}
+}
+
+func TestMobileLogoutRevokesOnlyMobileToken(t *testing.T) {
+	ctx := context.Background()
+	svc := newAuthTestService(t, LoginLimiterConfig{UserFailures: 100, IPFailures: 100})
+	createTestUser(t, ctx, svc.DB, "owner", "owner@example.test", "ValidPass123!", "active")
+	login, err := svc.MobileLogin(ctx, connect.NewRequest(&pb.MobileLoginRequest{
+		Username: "owner", Password: "ValidPass123!", DeviceId: "device-1",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.MobileLogout(ctx, connect.NewRequest(&pb.MobileLogoutRequest{RefreshToken: login.Msg.GetRefreshToken()})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.DB.ValidateRefreshTokenForClient(ctx, login.Msg.GetRefreshToken(), "mobile"); !errors.Is(err, store.ErrTokenInvalid) {
+		t.Fatalf("mobile token remained valid after logout: %v", err)
+	}
+}
+
+func TestMobileLoginValidatesDeviceFields(t *testing.T) {
+	ctx := context.Background()
+	svc := newAuthTestService(t, LoginLimiterConfig{})
+	createTestUser(t, ctx, svc.DB, "owner", "owner@example.test", "ValidPass123!", "active")
+	for _, tc := range []struct {
+		name string
+		in   *pb.MobileLoginRequest
+	}{
+		{name: "missing device", in: &pb.MobileLoginRequest{Username: "owner", Password: "ValidPass123!"}},
+		{name: "long device id", in: &pb.MobileLoginRequest{Username: "owner", Password: "ValidPass123!", DeviceId: strings.Repeat("x", 129)}},
+		{name: "long device name", in: &pb.MobileLoginRequest{Username: "owner", Password: "ValidPass123!", DeviceId: "device", DeviceName: strings.Repeat("x", 129)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := svc.MobileLogin(ctx, connect.NewRequest(tc.in)); connect.CodeOf(err) != connect.CodeInvalidArgument {
+				t.Fatalf("MobileLogin code=%s err=%v, want InvalidArgument", connect.CodeOf(err), err)
+			}
+		})
+	}
+}
+
 func TestCreateUserRejectsWeakPassword(t *testing.T) {
 	ctx := auth.ContextWithIdentity(context.Background(), &auth.Identity{UserID: 1, Role: "admin"})
 	svc := newAuthTestService(t, LoginLimiterConfig{})

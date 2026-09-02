@@ -16,9 +16,12 @@ var ErrIdentityDisabled = errors.New("account disabled")
 type IdentityResolver func(context.Context, int64) (*Identity, error)
 
 var publicProcedures = map[string]bool{
-	"/mygardenworld.v1.AuthService/Login":   true,
-	"/mygardenworld.v1.AuthService/Refresh": true,
-	"/mygardenworld.v1.AuthService/Logout":  true,
+	"/mygardenworld.v1.AuthService/Login":         true,
+	"/mygardenworld.v1.AuthService/Refresh":       true,
+	"/mygardenworld.v1.AuthService/Logout":        true,
+	"/mygardenworld.v1.AuthService/MobileLogin":   true,
+	"/mygardenworld.v1.AuthService/MobileRefresh": true,
+	"/mygardenworld.v1.AuthService/MobileLogout":  true,
 }
 
 type Interceptor struct {

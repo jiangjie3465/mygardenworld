@@ -79,8 +79,8 @@ func TestOpenMigratesVersionThreeThroughRedeemSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	if version, err := databaseVersion(ctx, db.DB); err != nil || version != 6 {
-		t.Fatalf("schema version=%d err=%v, want 6", version, err)
+	if version, err := databaseVersion(ctx, db.DB); err != nil || version != currentSchemaVersion {
+		t.Fatalf("schema version=%d err=%v, want %d", version, err, currentSchemaVersion)
 	}
 	var column string
 	if err := db.QueryRowContext(ctx, `SELECT name FROM pragma_table_info('account_pearl_hire_usage') WHERE name = 'used_count'`).Scan(&column); err != nil {
@@ -133,8 +133,8 @@ func TestOpenMigratesVersionFiveRedeemSourcesWithoutLosingConfiguration(t *testi
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	if version, err := databaseVersion(ctx, db.DB); err != nil || version != 6 {
-		t.Fatalf("schema version=%d err=%v, want 6", version, err)
+	if version, err := databaseVersion(ctx, db.DB); err != nil || version != currentSchemaVersion {
+		t.Fatalf("schema version=%d err=%v, want %d", version, err, currentSchemaVersion)
 	}
 	var name string
 	if err := db.QueryRowContext(ctx, `SELECT name FROM redeem_sources WHERE name = 'source'`).Scan(&name); err != nil {

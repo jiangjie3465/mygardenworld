@@ -39,6 +39,14 @@ const (
 	AuthServiceRefreshProcedure = "/mygardenworld.v1.AuthService/Refresh"
 	// AuthServiceLogoutProcedure is the fully-qualified name of the AuthService's Logout RPC.
 	AuthServiceLogoutProcedure = "/mygardenworld.v1.AuthService/Logout"
+	// AuthServiceMobileLoginProcedure is the fully-qualified name of the AuthService's MobileLogin RPC.
+	AuthServiceMobileLoginProcedure = "/mygardenworld.v1.AuthService/MobileLogin"
+	// AuthServiceMobileRefreshProcedure is the fully-qualified name of the AuthService's MobileRefresh
+	// RPC.
+	AuthServiceMobileRefreshProcedure = "/mygardenworld.v1.AuthService/MobileRefresh"
+	// AuthServiceMobileLogoutProcedure is the fully-qualified name of the AuthService's MobileLogout
+	// RPC.
+	AuthServiceMobileLogoutProcedure = "/mygardenworld.v1.AuthService/MobileLogout"
 	// AuthServiceGetMeProcedure is the fully-qualified name of the AuthService's GetMe RPC.
 	AuthServiceGetMeProcedure = "/mygardenworld.v1.AuthService/GetMe"
 )
@@ -48,6 +56,12 @@ type AuthServiceClient interface {
 	Login(context.Context, *connect.Request[v1.LoginRequest]) (*connect.Response[v1.LoginResponse], error)
 	Refresh(context.Context, *connect.Request[v1.RefreshRequest]) (*connect.Response[v1.RefreshResponse], error)
 	Logout(context.Context, *connect.Request[v1.LogoutRequest]) (*connect.Response[v1.LogoutResponse], error)
+	// Mobile authentication returns refresh tokens in the response body rather
+	// than using browser cookies. Refresh tokens are device-scoped and rotated
+	// on every refresh.
+	MobileLogin(context.Context, *connect.Request[v1.MobileLoginRequest]) (*connect.Response[v1.MobileLoginResponse], error)
+	MobileRefresh(context.Context, *connect.Request[v1.MobileRefreshRequest]) (*connect.Response[v1.MobileRefreshResponse], error)
+	MobileLogout(context.Context, *connect.Request[v1.MobileLogoutRequest]) (*connect.Response[v1.MobileLogoutResponse], error)
 	GetMe(context.Context, *connect.Request[v1.GetMeRequest]) (*connect.Response[v1.GetMeResponse], error)
 }
 
@@ -80,6 +94,24 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(authServiceMethods.ByName("Logout")),
 			connect.WithClientOptions(opts...),
 		),
+		mobileLogin: connect.NewClient[v1.MobileLoginRequest, v1.MobileLoginResponse](
+			httpClient,
+			baseURL+AuthServiceMobileLoginProcedure,
+			connect.WithSchema(authServiceMethods.ByName("MobileLogin")),
+			connect.WithClientOptions(opts...),
+		),
+		mobileRefresh: connect.NewClient[v1.MobileRefreshRequest, v1.MobileRefreshResponse](
+			httpClient,
+			baseURL+AuthServiceMobileRefreshProcedure,
+			connect.WithSchema(authServiceMethods.ByName("MobileRefresh")),
+			connect.WithClientOptions(opts...),
+		),
+		mobileLogout: connect.NewClient[v1.MobileLogoutRequest, v1.MobileLogoutResponse](
+			httpClient,
+			baseURL+AuthServiceMobileLogoutProcedure,
+			connect.WithSchema(authServiceMethods.ByName("MobileLogout")),
+			connect.WithClientOptions(opts...),
+		),
 		getMe: connect.NewClient[v1.GetMeRequest, v1.GetMeResponse](
 			httpClient,
 			baseURL+AuthServiceGetMeProcedure,
@@ -91,10 +123,13 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 
 // authServiceClient implements AuthServiceClient.
 type authServiceClient struct {
-	login   *connect.Client[v1.LoginRequest, v1.LoginResponse]
-	refresh *connect.Client[v1.RefreshRequest, v1.RefreshResponse]
-	logout  *connect.Client[v1.LogoutRequest, v1.LogoutResponse]
-	getMe   *connect.Client[v1.GetMeRequest, v1.GetMeResponse]
+	login         *connect.Client[v1.LoginRequest, v1.LoginResponse]
+	refresh       *connect.Client[v1.RefreshRequest, v1.RefreshResponse]
+	logout        *connect.Client[v1.LogoutRequest, v1.LogoutResponse]
+	mobileLogin   *connect.Client[v1.MobileLoginRequest, v1.MobileLoginResponse]
+	mobileRefresh *connect.Client[v1.MobileRefreshRequest, v1.MobileRefreshResponse]
+	mobileLogout  *connect.Client[v1.MobileLogoutRequest, v1.MobileLogoutResponse]
+	getMe         *connect.Client[v1.GetMeRequest, v1.GetMeResponse]
 }
 
 // Login calls mygardenworld.v1.AuthService.Login.
@@ -112,6 +147,21 @@ func (c *authServiceClient) Logout(ctx context.Context, req *connect.Request[v1.
 	return c.logout.CallUnary(ctx, req)
 }
 
+// MobileLogin calls mygardenworld.v1.AuthService.MobileLogin.
+func (c *authServiceClient) MobileLogin(ctx context.Context, req *connect.Request[v1.MobileLoginRequest]) (*connect.Response[v1.MobileLoginResponse], error) {
+	return c.mobileLogin.CallUnary(ctx, req)
+}
+
+// MobileRefresh calls mygardenworld.v1.AuthService.MobileRefresh.
+func (c *authServiceClient) MobileRefresh(ctx context.Context, req *connect.Request[v1.MobileRefreshRequest]) (*connect.Response[v1.MobileRefreshResponse], error) {
+	return c.mobileRefresh.CallUnary(ctx, req)
+}
+
+// MobileLogout calls mygardenworld.v1.AuthService.MobileLogout.
+func (c *authServiceClient) MobileLogout(ctx context.Context, req *connect.Request[v1.MobileLogoutRequest]) (*connect.Response[v1.MobileLogoutResponse], error) {
+	return c.mobileLogout.CallUnary(ctx, req)
+}
+
 // GetMe calls mygardenworld.v1.AuthService.GetMe.
 func (c *authServiceClient) GetMe(ctx context.Context, req *connect.Request[v1.GetMeRequest]) (*connect.Response[v1.GetMeResponse], error) {
 	return c.getMe.CallUnary(ctx, req)
@@ -122,6 +172,12 @@ type AuthServiceHandler interface {
 	Login(context.Context, *connect.Request[v1.LoginRequest]) (*connect.Response[v1.LoginResponse], error)
 	Refresh(context.Context, *connect.Request[v1.RefreshRequest]) (*connect.Response[v1.RefreshResponse], error)
 	Logout(context.Context, *connect.Request[v1.LogoutRequest]) (*connect.Response[v1.LogoutResponse], error)
+	// Mobile authentication returns refresh tokens in the response body rather
+	// than using browser cookies. Refresh tokens are device-scoped and rotated
+	// on every refresh.
+	MobileLogin(context.Context, *connect.Request[v1.MobileLoginRequest]) (*connect.Response[v1.MobileLoginResponse], error)
+	MobileRefresh(context.Context, *connect.Request[v1.MobileRefreshRequest]) (*connect.Response[v1.MobileRefreshResponse], error)
+	MobileLogout(context.Context, *connect.Request[v1.MobileLogoutRequest]) (*connect.Response[v1.MobileLogoutResponse], error)
 	GetMe(context.Context, *connect.Request[v1.GetMeRequest]) (*connect.Response[v1.GetMeResponse], error)
 }
 
@@ -150,6 +206,24 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(authServiceMethods.ByName("Logout")),
 		connect.WithHandlerOptions(opts...),
 	)
+	authServiceMobileLoginHandler := connect.NewUnaryHandler(
+		AuthServiceMobileLoginProcedure,
+		svc.MobileLogin,
+		connect.WithSchema(authServiceMethods.ByName("MobileLogin")),
+		connect.WithHandlerOptions(opts...),
+	)
+	authServiceMobileRefreshHandler := connect.NewUnaryHandler(
+		AuthServiceMobileRefreshProcedure,
+		svc.MobileRefresh,
+		connect.WithSchema(authServiceMethods.ByName("MobileRefresh")),
+		connect.WithHandlerOptions(opts...),
+	)
+	authServiceMobileLogoutHandler := connect.NewUnaryHandler(
+		AuthServiceMobileLogoutProcedure,
+		svc.MobileLogout,
+		connect.WithSchema(authServiceMethods.ByName("MobileLogout")),
+		connect.WithHandlerOptions(opts...),
+	)
 	authServiceGetMeHandler := connect.NewUnaryHandler(
 		AuthServiceGetMeProcedure,
 		svc.GetMe,
@@ -164,6 +238,12 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 			authServiceRefreshHandler.ServeHTTP(w, r)
 		case AuthServiceLogoutProcedure:
 			authServiceLogoutHandler.ServeHTTP(w, r)
+		case AuthServiceMobileLoginProcedure:
+			authServiceMobileLoginHandler.ServeHTTP(w, r)
+		case AuthServiceMobileRefreshProcedure:
+			authServiceMobileRefreshHandler.ServeHTTP(w, r)
+		case AuthServiceMobileLogoutProcedure:
+			authServiceMobileLogoutHandler.ServeHTTP(w, r)
 		case AuthServiceGetMeProcedure:
 			authServiceGetMeHandler.ServeHTTP(w, r)
 		default:
@@ -185,6 +265,18 @@ func (UnimplementedAuthServiceHandler) Refresh(context.Context, *connect.Request
 
 func (UnimplementedAuthServiceHandler) Logout(context.Context, *connect.Request[v1.LogoutRequest]) (*connect.Response[v1.LogoutResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mygardenworld.v1.AuthService.Logout is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) MobileLogin(context.Context, *connect.Request[v1.MobileLoginRequest]) (*connect.Response[v1.MobileLoginResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mygardenworld.v1.AuthService.MobileLogin is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) MobileRefresh(context.Context, *connect.Request[v1.MobileRefreshRequest]) (*connect.Response[v1.MobileRefreshResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mygardenworld.v1.AuthService.MobileRefresh is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) MobileLogout(context.Context, *connect.Request[v1.MobileLogoutRequest]) (*connect.Response[v1.MobileLogoutResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mygardenworld.v1.AuthService.MobileLogout is not implemented"))
 }
 
 func (UnimplementedAuthServiceHandler) GetMe(context.Context, *connect.Request[v1.GetMeRequest]) (*connect.Response[v1.GetMeResponse], error) {

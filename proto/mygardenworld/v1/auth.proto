@@ -33,6 +33,12 @@ service AuthService {
   rpc Login(LoginRequest) returns (LoginResponse);
   rpc Refresh(RefreshRequest) returns (RefreshResponse);
   rpc Logout(LogoutRequest) returns (LogoutResponse);
+  // Mobile authentication returns refresh tokens in the response body rather
+  // than using browser cookies. Refresh tokens are device-scoped and rotated
+  // on every refresh.
+  rpc MobileLogin(MobileLoginRequest) returns (MobileLoginResponse);
+  rpc MobileRefresh(MobileRefreshRequest) returns (MobileRefreshResponse);
+  rpc MobileLogout(MobileLogoutRequest) returns (MobileLogoutResponse);
   rpc GetMe(GetMeRequest) returns (GetMeResponse);
 }
 
@@ -56,6 +62,39 @@ message RefreshResponse {
 message LogoutRequest {}
 
 message LogoutResponse {}
+
+message MobileLoginRequest {
+  string username = 1;
+  string password = 2;
+  string device_id = 3;
+  string device_name = 4;
+}
+
+message MobileLoginResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  google.protobuf.Timestamp access_expires_at = 3;
+  google.protobuf.Timestamp refresh_expires_at = 4;
+  User user = 5;
+}
+
+message MobileRefreshRequest {
+  string refresh_token = 1;
+}
+
+message MobileRefreshResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  google.protobuf.Timestamp access_expires_at = 3;
+  google.protobuf.Timestamp refresh_expires_at = 4;
+  User user = 5;
+}
+
+message MobileLogoutRequest {
+  string refresh_token = 1;
+}
+
+message MobileLogoutResponse {}
 
 message GetMeRequest {}
 

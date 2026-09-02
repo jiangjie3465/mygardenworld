@@ -18,20 +18,40 @@ func hashToken(token string) string {
 }
 
 func (d *DB) SaveRefreshToken(ctx context.Context, userID int64, token string, expiresAt time.Time) error {
+	return d.SaveRefreshTokenSession(ctx, userID, token, expiresAt, "web", "", "")
+}
+
+func (d *DB) SaveRefreshTokenSession(ctx context.Context, userID int64, token string, expiresAt time.Time, clientType, deviceID, deviceName string) error {
+	if clientType != "web" && clientType != "mobile" {
+		return fmt.Errorf("invalid refresh token client type %q", clientType)
+	}
 	_, err := d.ExecContext(ctx,
-		`INSERT INTO refresh_tokens(user_id, token_hash, expires_at) VALUES (?, ?, ?)`,
-		userID, hashToken(token), expiresAt.UTC(),
+		`INSERT INTO refresh_tokens(user_id, token_hash, expires_at, client_type, device_id, device_name, last_used_at)
+		 VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+		userID, hashToken(token), expiresAt.UTC(), clientType, deviceID, deviceName,
 	)
 	return err
 }
 
 func (d *DB) ValidateRefreshToken(ctx context.Context, token string) (int64, error) {
+	return d.validateRefreshToken(ctx, token, "")
+}
+
+// ValidateRefreshTokenForClient validates a refresh token and requires it to
+// belong to the requested transport client. This prevents browser and mobile
+// refresh tokens from being exchanged across authentication flows.
+func (d *DB) ValidateRefreshTokenForClient(ctx context.Context, token, clientType string) (int64, error) {
+	return d.validateRefreshToken(ctx, token, clientType)
+}
+
+func (d *DB) validateRefreshToken(ctx context.Context, token, clientType string) (int64, error) {
 	var userID int64
 	var expiresAt time.Time
+	var storedClientType string
 	err := d.QueryRowContext(ctx,
-		`SELECT user_id, expires_at FROM refresh_tokens WHERE token_hash = ?`,
+		`SELECT user_id, expires_at, client_type FROM refresh_tokens WHERE token_hash = ?`,
 		hashToken(token),
-	).Scan(&userID, &expiresAt)
+	).Scan(&userID, &expiresAt, &storedClientType)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, ErrTokenInvalid
 	}
@@ -42,11 +62,46 @@ func (d *DB) ValidateRefreshToken(ctx context.Context, token string) (int64, err
 		_ = d.revokeTokenHash(ctx, hashToken(token))
 		return 0, ErrTokenInvalid
 	}
+	if clientType != "" && storedClientType != clientType {
+		return 0, ErrTokenInvalid
+	}
+	if _, err := d.ExecContext(ctx,
+		`UPDATE refresh_tokens SET last_used_at = CURRENT_TIMESTAMP WHERE token_hash = ?`,
+		hashToken(token),
+	); err != nil {
+		return 0, err
+	}
 	return userID, nil
 }
 
 func (d *DB) RevokeRefreshToken(ctx context.Context, token string) error {
 	return d.revokeTokenHash(ctx, hashToken(token))
+}
+
+func (d *DB) RevokeRefreshTokenForClient(ctx context.Context, token, clientType string) error {
+	if clientType != "web" && clientType != "mobile" {
+		return fmt.Errorf("invalid refresh token client type %q", clientType)
+	}
+	_, err := d.ExecContext(ctx,
+		`DELETE FROM refresh_tokens WHERE token_hash = ? AND client_type = ?`,
+		hashToken(token), clientType,
+	)
+	return err
+}
+
+func (d *DB) RefreshTokenDevice(ctx context.Context, token string) (string, string, error) {
+	var deviceID, deviceName string
+	err := d.QueryRowContext(ctx,
+		`SELECT device_id, device_name FROM refresh_tokens WHERE token_hash = ? AND client_type = 'mobile'`,
+		hashToken(token),
+	).Scan(&deviceID, &deviceName)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", ErrTokenInvalid
+	}
+	if err != nil {
+		return "", "", err
+	}
+	return deviceID, deviceName, nil
 }
 
 func (d *DB) RevokeAllRefreshTokens(ctx context.Context, userID int64) error {
@@ -58,8 +113,15 @@ func (d *DB) RevokeAllRefreshTokens(ctx context.Context, userID int64) error {
 // replacement. If any part of the rotation fails, the old token remains
 // valid; concurrent replays of the same token can only succeed once.
 func (d *DB) RotateRefreshToken(ctx context.Context, oldToken, newToken string, expiresAt time.Time) error {
+	return d.RotateRefreshTokenSession(ctx, oldToken, newToken, expiresAt, "web", "", "")
+}
+
+func (d *DB) RotateRefreshTokenSession(ctx context.Context, oldToken, newToken string, expiresAt time.Time, clientType, deviceID, deviceName string) error {
 	if oldToken == "" || newToken == "" || oldToken == newToken {
 		return ErrTokenInvalid
+	}
+	if clientType != "web" && clientType != "mobile" {
+		return fmt.Errorf("invalid refresh token client type %q", clientType)
 	}
 	tx, err := d.BeginTx(ctx, nil)
 	if err != nil {
@@ -70,10 +132,11 @@ func (d *DB) RotateRefreshToken(ctx context.Context, oldToken, newToken string, 
 	oldHash := hashToken(oldToken)
 	var userID int64
 	var storedExpiry time.Time
+	var storedClientType string
 	if err := tx.QueryRowContext(ctx,
-		`DELETE FROM refresh_tokens WHERE token_hash = ? RETURNING user_id, expires_at`,
+		`DELETE FROM refresh_tokens WHERE token_hash = ? RETURNING user_id, expires_at, client_type`,
 		oldHash,
-	).Scan(&userID, &storedExpiry); err != nil {
+	).Scan(&userID, &storedExpiry, &storedClientType); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrTokenInvalid
 		}
@@ -85,10 +148,14 @@ func (d *DB) RotateRefreshToken(ctx context.Context, oldToken, newToken string, 
 		}
 		return ErrTokenInvalid
 	}
+	if storedClientType != clientType {
+		return ErrTokenInvalid
+	}
 
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO refresh_tokens(user_id, token_hash, expires_at) VALUES (?, ?, ?)`,
-		userID, hashToken(newToken), expiresAt.UTC(),
+		`INSERT INTO refresh_tokens(user_id, token_hash, expires_at, client_type, device_id, device_name, last_used_at)
+		 VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+		userID, hashToken(newToken), expiresAt.UTC(), clientType, deviceID, deviceName,
 	); err != nil {
 		return fmt.Errorf("store rotated refresh token: %w", err)
 	}
