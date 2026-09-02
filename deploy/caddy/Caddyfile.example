@@ -1,0 +1,10 @@
+# Copy this file to Caddy's configuration directory and replace the hostname.
+# gardend remains bound to 127.0.0.1:50051; Caddy is the public HTTPS edge.
+garden.example.com {
+    reverse_proxy 127.0.0.1:50051 {
+        # Caddy forwards WebSocket Upgrade automatically and sets
+        # X-Forwarded-Proto=https for secure-cookie and origin handling.
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+    }
+}
