@@ -7,9 +7,13 @@ package com.silkage.mygardenworld.core.network
 interface TokenAuthority {
     fun accessToken(): String?
 
-    /** Returns true when a new access token is available. */
-    suspend fun refreshAccessToken(): Boolean
+    /** True when the in-memory access token has passed (or is about to pass) its expiry. */
+    fun accessTokenExpired(): Boolean
 
-    /** Called when refresh failed and the user must sign in again. */
-    fun onAuthExpired()
+    /**
+     * Returns true when a new access token is available. The implementation
+     * signs the user out itself when the server rejects the refresh token;
+     * callers never decide that from an RPC status.
+     */
+    suspend fun refreshAccessToken(): Boolean
 }

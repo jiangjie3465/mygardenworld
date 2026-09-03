@@ -60,6 +60,9 @@ class AuthSession(
 
     override fun accessToken(): String? = accessToken
 
+    override fun accessTokenExpired(): Boolean =
+        accessToken == null || accessTokenExpiresAtMillis <= 0 || System.currentTimeMillis() >= accessTokenExpiresAtMillis - EXPIRY_SLACK_MILLIS
+
     /** Establishes a session against [rawBaseUrl]. Throws ConnectException or IllegalArgumentException. */
     suspend fun login(rawBaseUrl: String, username: String, password: String): User {
         val base = normalizeApiBaseUrl(rawBaseUrl)
@@ -127,12 +130,6 @@ class AuthSession(
         true
     }
 
-    override fun onAuthExpired() {
-        if (accessToken == null && _state.value is AuthState.SignedOut) return
-        Log.w(TAG, "auth expired, signing out")
-        clearLocal("登录已过期，请重新登录")
-    }
-
     suspend fun logout() {
         val refresh = tokenStore.readRefreshToken()
         if (rpc.baseUrl != null && refresh != null) {
@@ -153,6 +150,7 @@ class AuthSession(
 
     private companion object {
         const val TAG = "MGW.Auth"
+        const val EXPIRY_SLACK_MILLIS = 30_000L
     }
 
     private fun clearLocal(reason: String?) {

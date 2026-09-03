@@ -19,16 +19,15 @@ import org.junit.Test
 class ConnectClientTest {
     private val server = MockWebServer()
 
-    private class FakeAuthority(var token: String? = "t1", private val refreshResult: Boolean = true) : TokenAuthority {
+    private class FakeAuthority(var token: String? = "t1", private val refreshResult: Boolean = true, var expired: Boolean = true) : TokenAuthority {
         var refreshes = 0
-        var expired = 0
         override fun accessToken(): String? = token
+        override fun accessTokenExpired(): Boolean = expired
         override suspend fun refreshAccessToken(): Boolean {
             refreshes++
             if (refreshResult) token = "t2"
             return refreshResult
         }
-        override fun onAuthExpired() { expired++ }
     }
 
     @Before fun setUp() { server.start() }
@@ -81,16 +80,33 @@ class ConnectClientTest {
         val response = client(authority).call("AuthService", "GetMe", GetMeRequest.getDefaultInstance(), GetMeResponse.parser())
         assertEquals("owner", response.user.username)
         assertEquals(1, authority.refreshes)
-        assertEquals(0, authority.expired)
         assertEquals("Bearer t1", server.takeRequest().headers["Authorization"])
         assertEquals("Bearer t2", server.takeRequest().headers["Authorization"])
     }
 
     @Test
-    fun doesNotRetryMoreThanOnce() = runBlocking {
-        server.enqueue(errorResponse(401, """{"code":"unauthenticated"}"""))
-        server.enqueue(errorResponse(401, """{"code":"unauthenticated"}"""))
-        val authority = FakeAuthority()
+    fun businessUnauthenticatedSurfacesMessageWithoutRefreshWhenTokenIsFresh() = runBlocking {
+        // CreateAccount answers unauthenticated for wrong game credentials.
+        val raw = "login: account/login: response missing signature: map[msg:用户名或密码错误 status:4002 success:false]"
+        server.enqueue(errorResponse(401, """{"code":"unauthenticated","message":"$raw"}"""))
+        val authority = FakeAuthority(expired = false)
+        try {
+            client(authority).call("AccountService", "CreateAccount", GetMeRequest.getDefaultInstance(), GetMeResponse.parser())
+            fail("expected ConnectException")
+        } catch (e: ConnectException) {
+            assertEquals(ConnectCode.UNAUTHENTICATED, e.code)
+            assertEquals("用户名或密码错误", e.userMessage)
+        }
+        assertEquals("a fresh token is not refreshed for a business 401", 0, authority.refreshes)
+        assertEquals(1, server.requestCount)
+        assertEquals("t1", authority.token)
+    }
+
+    @Test
+    fun tokenErrorWithFreshLocalTokenStillRefreshesOnce() = runBlocking {
+        server.enqueue(errorResponse(401, """{"code":"unauthenticated","message":"token invalid"}"""))
+        server.enqueue(errorResponse(401, """{"code":"unauthenticated","message":"token invalid"}"""))
+        val authority = FakeAuthority(expired = false)
         try {
             client(authority).call("AuthService", "GetMe", GetMeRequest.getDefaultInstance(), GetMeResponse.parser())
             fail("expected ConnectException")
@@ -98,8 +114,7 @@ class ConnectClientTest {
             assertEquals(ConnectCode.UNAUTHENTICATED, e.code)
         }
         assertEquals(1, authority.refreshes)
-        assertEquals(1, authority.expired)
-        assertEquals(2, server.requestCount)
+        assertEquals("refreshed once, retried once, never a third attempt", 2, server.requestCount)
     }
 
     @Test
@@ -112,7 +127,6 @@ class ConnectClientTest {
         } catch (e: ConnectException) {
             assertEquals(ConnectCode.UNAUTHENTICATED, e.code)
         }
-        assertEquals("sign-out is AuthSession's decision, not the client's", 0, authority.expired)
         assertEquals(1, server.requestCount)
     }
 

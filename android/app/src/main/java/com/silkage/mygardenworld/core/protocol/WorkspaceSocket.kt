@@ -295,7 +295,10 @@ class WorkspaceSocket(
                     // refresh token; the auth state collector then stops this
                     // socket. Otherwise keep retrying with backoff.
                     Log.w(TAG, "token refresh failed before reconnect, retrying later")
-                    if (tokenAuthority.accessToken() == null) emit(WorkspaceEvent.AuthExpired)
+                    if (tokenAuthority.accessToken() == null) {
+                        emit(WorkspaceEvent.AuthExpired)
+                        return@launch
+                    }
                     scheduleReconnect(refreshToken = true)
                     return@launch
                 }

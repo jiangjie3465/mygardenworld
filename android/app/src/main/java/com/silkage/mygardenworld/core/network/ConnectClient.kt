@@ -75,8 +75,20 @@ class ConnectException(
                 ConnectCode.INTERNAL -> "后端服务内部错误"
                 else -> "请求失败"
             }
-            else -> message!!
+            else -> tidyServerMessage(message!!)
         }
+
+    private companion object {
+        val embeddedMessage = Regex("""msg:([^\]\s]+)""")
+        val statusSuffix = Regex("""\s*status:\S+""")
+
+        /** Surfaces the human-readable part of nested daemon/game errors such as
+         *  `login: account/login: ... map[msg:用户名或密码错误 status:4002 success:false]`. */
+        fun tidyServerMessage(raw: String): String {
+            embeddedMessage.find(raw)?.let { return it.groupValues[1].replace(statusSuffix, "") }
+            return raw.removePrefix("login: ")
+        }
+    }
 }
 
 /**
@@ -106,17 +118,17 @@ class ConnectClient(
         if (first.isSuccess || !authenticated) return first.getOrThrow()
         val error = first.exceptionOrNull() as? ConnectException ?: return first.getOrThrow()
         if (error.code != ConnectCode.UNAUTHENTICATED) throw error
+        // Business RPCs also answer `unauthenticated` for game-side login
+        // failures (e.g. CreateAccount with wrong game credentials), so a 401
+        // never signs the user out here and only triggers a refresh when the
+        // access token is stale or the daemon's auth layer rejected it.
+        // AuthSession clears local state only when the refresh itself is rejected.
+        if (!tokenAuthority.accessTokenExpired() && !looksLikeTokenError(error)) throw error
         Log.i(TAG, "$service/$method unauthenticated, refreshing access token")
-        // A failed refresh does not sign the user out here: AuthSession clears
-        // local state only when the server rejected the refresh token, and a
-        // transport failure must keep the session for the next attempt.
         if (!tokenAuthority.refreshAccessToken()) throw error
         val second = execute(client, url, body, parser, tokenAuthority.accessToken())
         val retryError = second.exceptionOrNull() as? ConnectException
-        if (retryError?.code == ConnectCode.UNAUTHENTICATED) {
-            Log.w(TAG, "$service/$method still unauthenticated after refresh")
-            tokenAuthority.onAuthExpired()
-        }
+        if (retryError?.code == ConnectCode.UNAUTHENTICATED) Log.w(TAG, "$service/$method still unauthenticated after refresh: ${retryError.message}")
         return second.getOrThrow()
     }
 
@@ -169,6 +181,12 @@ class ConnectClient(
             .writeTimeout(15, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .build()
+
+        /** Messages produced by the daemon's JWT interceptor rather than by a business RPC. */
+        fun looksLikeTokenError(error: ConnectException): Boolean {
+            val message = error.message.orEmpty()
+            return message.isBlank() || message.startsWith("token ") || message.contains("登录已过期")
+        }
 
         /** Connect unary errors are always JSON `{ "code": "...", "message": "..." }`. */
         fun parseError(httpStatus: Int, body: ByteArray): ConnectException {
