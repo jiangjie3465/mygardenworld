@@ -103,7 +103,7 @@ class ConnectClientTest {
     }
 
     @Test
-    fun failedRefreshReportsAuthExpiredWithoutRetry() = runBlocking {
+    fun failedRefreshThrowsWithoutRetryAndWithoutSignOut() = runBlocking {
         server.enqueue(errorResponse(401, """{"code":"unauthenticated"}"""))
         val authority = FakeAuthority(refreshResult = false)
         try {
@@ -112,7 +112,7 @@ class ConnectClientTest {
         } catch (e: ConnectException) {
             assertEquals(ConnectCode.UNAUTHENTICATED, e.code)
         }
-        assertEquals(1, authority.expired)
+        assertEquals("sign-out is AuthSession's decision, not the client's", 0, authority.expired)
         assertEquals(1, server.requestCount)
     }
 

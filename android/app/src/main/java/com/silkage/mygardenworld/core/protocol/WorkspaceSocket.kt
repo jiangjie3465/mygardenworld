@@ -1,5 +1,6 @@
 package com.silkage.mygardenworld.core.protocol
 
+import android.util.Log
 import com.mygardenworld.v1.AccountRedeemAttemptFilter
 import com.mygardenworld.v1.AccountRedeemAttemptPage
 import com.mygardenworld.v1.AccountStatusBatch
@@ -199,10 +200,12 @@ class WorkspaceSocket(
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+            Log.i(TAG, "closed code=$code reason=$reason")
             handleClosed(webSocket, code)
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+            Log.w(TAG, "failure http=${response?.code} ${t.javaClass.simpleName}: ${t.message}")
             handleClosed(webSocket, response?.code?.let { if (it == 401) CLOSE_AUTH_EXPIRED else 0 } ?: 0)
         }
     }
@@ -288,8 +291,12 @@ class WorkspaceSocket(
                 delay(delayMs)
                 synchronized(lock) { reconnectJob = null }
                 if (refreshToken && !tokenAuthority.refreshAccessToken()) {
-                    tokenAuthority.onAuthExpired()
-                    emit(WorkspaceEvent.AuthExpired)
+                    // AuthSession signs out when the server rejected the
+                    // refresh token; the auth state collector then stops this
+                    // socket. Otherwise keep retrying with backoff.
+                    Log.w(TAG, "token refresh failed before reconnect, retrying later")
+                    if (tokenAuthority.accessToken() == null) emit(WorkspaceEvent.AuthExpired)
+                    scheduleReconnect(refreshToken = true)
                     return@launch
                 }
                 connect()
@@ -305,6 +312,7 @@ class WorkspaceSocket(
         WorkspaceError.newBuilder().setCode(code).setMessage(message).setRetryable(retryable).build()
 
     companion object {
+        private const val TAG = "MGW.Socket"
         const val PROTOCOL_VERSION = 1
         const val CLOSE_AUTH_EXPIRED = 4401
         const val RECONNECT_INITIAL_MS = 1_000L

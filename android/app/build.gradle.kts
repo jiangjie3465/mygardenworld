@@ -164,6 +164,8 @@ android {
     }
     testOptions {
         unitTests.isIncludeAndroidResources = false
+        // android.util.Log is a no-op in JVM tests.
+        unitTests.isReturnDefaultValues = true
     }
     lint {
         abortOnError = true

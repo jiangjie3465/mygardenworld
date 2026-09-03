@@ -2,6 +2,7 @@ package com.silkage.mygardenworld.core.network
 
 import com.google.protobuf.MessageLite
 import com.google.protobuf.Parser
+import android.util.Log
 import java.io.IOException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
@@ -95,25 +96,32 @@ class ConnectClient(
         request: MessageLite,
         parser: Parser<Resp>,
         authenticated: Boolean = true,
+        readTimeoutSeconds: Long = DEFAULT_READ_TIMEOUT_SECONDS,
     ): Resp {
         val base = baseUrl ?: throw ConnectException(ConnectCode.FAILED_PRECONDITION, "尚未配置服务地址")
         val url = rpcUrl(base, service, method)
         val body = request.toByteArray()
-        val first = execute(url, body, parser, if (authenticated) tokenAuthority.accessToken() else null)
+        val client = if (readTimeoutSeconds == DEFAULT_READ_TIMEOUT_SECONDS) http else http.newBuilder().readTimeout(readTimeoutSeconds, TimeUnit.SECONDS).build()
+        val first = execute(client, url, body, parser, if (authenticated) tokenAuthority.accessToken() else null)
         if (first.isSuccess || !authenticated) return first.getOrThrow()
         val error = first.exceptionOrNull() as? ConnectException ?: return first.getOrThrow()
         if (error.code != ConnectCode.UNAUTHENTICATED) throw error
-        if (!tokenAuthority.refreshAccessToken()) {
-            tokenAuthority.onAuthExpired()
-            throw error
-        }
-        val second = execute(url, body, parser, tokenAuthority.accessToken())
+        Log.i(TAG, "$service/$method unauthenticated, refreshing access token")
+        // A failed refresh does not sign the user out here: AuthSession clears
+        // local state only when the server rejected the refresh token, and a
+        // transport failure must keep the session for the next attempt.
+        if (!tokenAuthority.refreshAccessToken()) throw error
+        val second = execute(client, url, body, parser, tokenAuthority.accessToken())
         val retryError = second.exceptionOrNull() as? ConnectException
-        if (retryError?.code == ConnectCode.UNAUTHENTICATED) tokenAuthority.onAuthExpired()
+        if (retryError?.code == ConnectCode.UNAUTHENTICATED) {
+            Log.w(TAG, "$service/$method still unauthenticated after refresh")
+            tokenAuthority.onAuthExpired()
+        }
         return second.getOrThrow()
     }
 
     private suspend fun <Resp : MessageLite> execute(
+        client: OkHttpClient,
         url: String,
         body: ByteArray,
         parser: Parser<Resp>,
@@ -126,7 +134,7 @@ class ConnectClient(
             .header("Accept", "application/proto")
         if (token != null) builder.header("Authorization", "Bearer $token")
         try {
-            http.newCall(builder.build()).execute().use { response ->
+            client.newCall(builder.build()).execute().use { response ->
                 val bytes = response.body.bytes()
                 if (response.isSuccessful) {
                     Result.success(parser.parseFrom(bytes))
@@ -137,20 +145,27 @@ class ConnectClient(
         } catch (e: ConnectException) {
             Result.failure(e)
         } catch (e: SocketTimeoutException) {
+            Log.w(TAG, "timeout calling $url", e)
             Result.failure(ConnectException(ConnectCode.DEADLINE_EXCEEDED, "请求超时，请稍后再试", e))
         } catch (e: UnknownHostException) {
             Result.failure(ConnectException(ConnectCode.UNAVAILABLE, "无法解析服务地址", e))
         } catch (e: IOException) {
+            Log.w(TAG, "transport failure calling $url", e)
             Result.failure(ConnectException(ConnectCode.UNAVAILABLE, "暂时无法访问后端服务", e))
         }
     }
 
     companion object {
+        private const val TAG = "MGW.Connect"
         private val PROTO_MEDIA_TYPE = "application/proto".toMediaType()
+        const val DEFAULT_READ_TIMEOUT_SECONDS = 30L
+
+        /** Game-side logins (account creation, connect, Alipay start) can take minutes. */
+        const val LONG_READ_TIMEOUT_SECONDS = 180L
 
         fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(DEFAULT_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .writeTimeout(15, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .build()

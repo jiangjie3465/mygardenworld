@@ -1,5 +1,6 @@
 package com.silkage.mygardenworld.core.auth
 
+import android.util.Log
 import com.mygardenworld.v1.MobileLoginRequest
 import com.mygardenworld.v1.MobileLoginResponse
 import com.mygardenworld.v1.MobileLogoutRequest
@@ -111,10 +112,14 @@ class AuthSession(
             if (e.code == com.silkage.mygardenworld.core.network.ConnectCode.UNAUTHENTICATED ||
                 e.code == com.silkage.mygardenworld.core.network.ConnectCode.PERMISSION_DENIED
             ) {
+                Log.w(TAG, "refresh rejected by server: ${e.code} ${e.message}")
                 clearLocal(e.userMessage)
+            } else {
+                Log.w(TAG, "refresh failed (kept session): ${e.code} ${e.message}")
             }
             return@withLock false
         }
+        Log.i(TAG, "access token refreshed")
         tokenStore.writeRefreshToken(response.refreshToken)
         accessToken = response.accessToken
         accessTokenExpiresAtMillis = response.accessExpiresAt.seconds * 1000
@@ -124,6 +129,7 @@ class AuthSession(
 
     override fun onAuthExpired() {
         if (accessToken == null && _state.value is AuthState.SignedOut) return
+        Log.w(TAG, "auth expired, signing out")
         clearLocal("登录已过期，请重新登录")
     }
 
@@ -144,6 +150,10 @@ class AuthSession(
 
     /** Re-points the client at a new server without logging in (used by connection test). */
     fun previewBaseUrl(rawBaseUrl: String): String = normalizeApiBaseUrl(rawBaseUrl)
+
+    private companion object {
+        const val TAG = "MGW.Auth"
+    }
 
     private fun clearLocal(reason: String?) {
         accessToken = null

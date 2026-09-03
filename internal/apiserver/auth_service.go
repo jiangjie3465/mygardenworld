@@ -197,6 +197,8 @@ func (svc *Services) MobileRefresh(ctx context.Context, req *connect.Request[pb.
 	}
 	userID, err := svc.DB.ValidateRefreshTokenForClient(ctx, token, "mobile")
 	if err != nil {
+		// The token value itself is never logged.
+		svc.logAuth("warn", "auth_mobile_refresh_rejected", "", req.Peer().Addr, 0)
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("登录已过期，请重新登录"))
 	}
 	user, err := svc.DB.GetUserByID(ctx, userID)
@@ -204,6 +206,7 @@ func (svc *Services) MobileRefresh(ctx context.Context, req *connect.Request[pb.
 		return nil, mapErr(err)
 	}
 	if user.Status != "active" {
+		svc.logAuth("warn", "auth_mobile_refresh_disabled", user.Username, req.Peer().Addr, user.ID)
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("账号已被禁用"))
 	}
 	count, err := svc.DB.CountAccountsByUser(ctx, user.ID)

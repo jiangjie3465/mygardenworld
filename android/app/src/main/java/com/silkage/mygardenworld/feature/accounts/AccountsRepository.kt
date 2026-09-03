@@ -34,17 +34,18 @@ class AccountsRepository(private val rpc: ConnectClient) {
         "AccountService", "CreateAccount",
         CreateAccountRequest.newBuilder().setUsername(username.trim()).setPassword(password).setChannel(Channel.CHANNEL_IOS).build(),
         CreateAccountResponse.parser(),
+        readTimeoutSeconds = ConnectClient.LONG_READ_TIMEOUT_SECONDS,
     )
 
     suspend fun startAlipayLogin(): StartAlipayLoginResponse =
-        rpc.call("AccountService", "StartAlipayLogin", StartAlipayLoginRequest.getDefaultInstance(), StartAlipayLoginResponse.parser())
+        rpc.call("AccountService", "StartAlipayLogin", StartAlipayLoginRequest.getDefaultInstance(), StartAlipayLoginResponse.parser(), readTimeoutSeconds = ConnectClient.LONG_READ_TIMEOUT_SECONDS)
 
     suspend fun delete(id: Long) {
         rpc.call("AccountService", "DeleteAccount", DeleteAccountRequest.newBuilder().setId(id).build(), DeleteAccountResponse.parser())
     }
 
     suspend fun connect(id: Long): Account =
-        rpc.call("AccountService", "ConnectAccount", ConnectAccountRequest.newBuilder().setId(id).build(), ConnectAccountResponse.parser()).account
+        rpc.call("AccountService", "ConnectAccount", ConnectAccountRequest.newBuilder().setId(id).build(), ConnectAccountResponse.parser(), readTimeoutSeconds = ConnectClient.LONG_READ_TIMEOUT_SECONDS).account
 
     suspend fun disconnect(id: Long): Account =
         rpc.call("AccountService", "DisconnectAccount", DisconnectAccountRequest.newBuilder().setId(id).build(), DisconnectAccountResponse.parser()).account
