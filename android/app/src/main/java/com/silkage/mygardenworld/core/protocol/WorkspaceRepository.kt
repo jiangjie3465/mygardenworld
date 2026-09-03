@@ -8,6 +8,7 @@ import com.mygardenworld.v1.WorkspaceError
 import com.mygardenworld.v1.WorkspaceLogPage
 import com.mygardenworld.v1.WorkspaceLogPageKind
 import com.mygardenworld.v1.WorkspaceState
+import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -42,6 +43,10 @@ data class WorkspaceUiState(
  * flow so it can be driven directly in tests.
  */
 class WorkspaceRepository(private val maxLogEvents: Int = 1_000) {
+    private companion object {
+        const val TAG = "MGW.Workspace"
+    }
+
     private val _state = MutableStateFlow(WorkspaceUiState())
     val state: StateFlow<WorkspaceUiState> = _state
 
@@ -75,19 +80,29 @@ class WorkspaceRepository(private val maxLogEvents: Int = 1_000) {
             is WorkspaceEvent.Snapshot -> _state.update { current ->
                 val snapshot = event.snapshot
                 val accountId = snapshot.state.accountId
+                Log.d(TAG, "snapshot account=$accountId selected=${current.selectedAccountId} hasLogs=${snapshot.hasLogs()} kind=${snapshot.logs.kind} events=${snapshot.logs.eventsCount}")
                 if (current.selectedAccountId != 0L && accountId != current.selectedAccountId) current
-                else current.copy(
-                    selectedAccountId = accountId,
-                    state = snapshot.state,
-                    logs = if (snapshot.hasLogs()) applyLogPage(LogWindow(), snapshot.logs) else LogWindow(),
-                    lastError = null,
-                )
+                else {
+                    // A re-select with a log cursor answers with an AFTER
+                    // catch-up page; that extends the window we already hold
+                    // instead of replacing it.
+                    val catchUp = snapshot.hasLogs() &&
+                        snapshot.logs.kind == WorkspaceLogPageKind.WORKSPACE_LOG_PAGE_KIND_AFTER &&
+                        accountId == current.selectedAccountId
+                    current.copy(
+                        selectedAccountId = accountId,
+                        state = snapshot.state,
+                        logs = if (snapshot.hasLogs()) applyLogPage(if (catchUp) current.logs else LogWindow(), snapshot.logs) else LogWindow(),
+                        lastError = null,
+                    )
+                }
             }
             is WorkspaceEvent.Patch -> _state.update { current ->
                 if (event.patch.accountId != 0L && event.patch.accountId != current.selectedAccountId) current
                 else current.copy(state = WorkspaceStateMerger.apply(current.state, event.patch))
             }
             is WorkspaceEvent.Logs -> _state.update { current ->
+                Log.d(TAG, "logs account=${event.page.accountId} selected=${current.selectedAccountId} kind=${event.page.kind} events=${event.page.eventsCount} window=${current.logs.events.size}")
                 if (event.page.accountId != current.selectedAccountId) current
                 else current.copy(logs = applyLogPage(current.logs, event.page))
             }

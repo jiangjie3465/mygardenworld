@@ -60,6 +60,47 @@ class WorkspaceRepositoryTest {
     }
 
     @Test
+    fun reselectSnapshotWithCatchUpPageExtendsExistingWindow() {
+        val repo = WorkspaceRepository()
+        repo.select(7)
+        repo.onEvent(
+            WorkspaceEvent.Snapshot(
+                WorkspaceSnapshot.newBuilder()
+                    .setState(WorkspaceState.newBuilder().setAccountId(7).setRevision(1))
+                    .setLogs(page(WorkspaceLogPageKind.WORKSPACE_LOG_PAGE_KIND_RECENT, 5, 4, 3, more = true, next = 3))
+                    .build(),
+            ),
+        )
+        // Same account selected again with after_log_id = 5: the server answers
+        // with the events after the cursor rather than a fresh recent page.
+        repo.select(7)
+        repo.onEvent(
+            WorkspaceEvent.Snapshot(
+                WorkspaceSnapshot.newBuilder()
+                    .setState(WorkspaceState.newBuilder().setAccountId(7).setRevision(2))
+                    .setLogs(page(WorkspaceLogPageKind.WORKSPACE_LOG_PAGE_KIND_AFTER, 7, 6))
+                    .build(),
+            ),
+        )
+        val logs = repo.state.value.logs
+        assertEquals(listOf(7L, 6L, 5L, 4L, 3L), logs.events.map { it.id })
+        assertTrue("older-page cursor survives the catch-up", logs.hasMoreBefore)
+        assertEquals(2, repo.state.value.state!!.revision)
+
+        // A different account always starts from its own recent page.
+        repo.select(8)
+        repo.onEvent(
+            WorkspaceEvent.Snapshot(
+                WorkspaceSnapshot.newBuilder()
+                    .setState(WorkspaceState.newBuilder().setAccountId(8))
+                    .setLogs(page(WorkspaceLogPageKind.WORKSPACE_LOG_PAGE_KIND_RECENT, 9, accountId = 8))
+                    .build(),
+            ),
+        )
+        assertEquals(listOf(9L), repo.state.value.logs.events.map { it.id })
+    }
+
+    @Test
     fun logPagesPrependLiveAppendOlderAndDeduplicate() {
         val repo = WorkspaceRepository(maxLogEvents = 6)
         repo.select(7)
