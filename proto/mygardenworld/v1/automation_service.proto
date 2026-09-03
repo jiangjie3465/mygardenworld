@@ -2,6 +2,9 @@ syntax = "proto3";
 
 package mygardenworld.v1;
 
+option java_multiple_files = true;
+option java_package = "com.mygardenworld.v1";
+
 service AutomationService {
   // Enables the automation loop on the account. Equivalent to setting
   // policy.automation_enabled = true and waking the runner.

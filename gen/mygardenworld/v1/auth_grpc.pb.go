@@ -19,13 +19,15 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AuthService_Login_FullMethodName         = "/mygardenworld.v1.AuthService/Login"
-	AuthService_Refresh_FullMethodName       = "/mygardenworld.v1.AuthService/Refresh"
-	AuthService_Logout_FullMethodName        = "/mygardenworld.v1.AuthService/Logout"
-	AuthService_MobileLogin_FullMethodName   = "/mygardenworld.v1.AuthService/MobileLogin"
-	AuthService_MobileRefresh_FullMethodName = "/mygardenworld.v1.AuthService/MobileRefresh"
-	AuthService_MobileLogout_FullMethodName  = "/mygardenworld.v1.AuthService/MobileLogout"
-	AuthService_GetMe_FullMethodName         = "/mygardenworld.v1.AuthService/GetMe"
+	AuthService_Login_FullMethodName               = "/mygardenworld.v1.AuthService/Login"
+	AuthService_Refresh_FullMethodName             = "/mygardenworld.v1.AuthService/Refresh"
+	AuthService_Logout_FullMethodName              = "/mygardenworld.v1.AuthService/Logout"
+	AuthService_MobileLogin_FullMethodName         = "/mygardenworld.v1.AuthService/MobileLogin"
+	AuthService_MobileRefresh_FullMethodName       = "/mygardenworld.v1.AuthService/MobileRefresh"
+	AuthService_MobileLogout_FullMethodName        = "/mygardenworld.v1.AuthService/MobileLogout"
+	AuthService_ListMobileSessions_FullMethodName  = "/mygardenworld.v1.AuthService/ListMobileSessions"
+	AuthService_RevokeMobileSession_FullMethodName = "/mygardenworld.v1.AuthService/RevokeMobileSession"
+	AuthService_GetMe_FullMethodName               = "/mygardenworld.v1.AuthService/GetMe"
 )
 
 // AuthServiceClient is the client API for AuthService service.
@@ -41,6 +43,10 @@ type AuthServiceClient interface {
 	MobileLogin(ctx context.Context, in *MobileLoginRequest, opts ...grpc.CallOption) (*MobileLoginResponse, error)
 	MobileRefresh(ctx context.Context, in *MobileRefreshRequest, opts ...grpc.CallOption) (*MobileRefreshResponse, error)
 	MobileLogout(ctx context.Context, in *MobileLogoutRequest, opts ...grpc.CallOption) (*MobileLogoutResponse, error)
+	// Device sessions are the caller's own mobile refresh-token sessions. Both
+	// RPCs require a Bearer access token.
+	ListMobileSessions(ctx context.Context, in *ListMobileSessionsRequest, opts ...grpc.CallOption) (*ListMobileSessionsResponse, error)
+	RevokeMobileSession(ctx context.Context, in *RevokeMobileSessionRequest, opts ...grpc.CallOption) (*RevokeMobileSessionResponse, error)
 	GetMe(ctx context.Context, in *GetMeRequest, opts ...grpc.CallOption) (*GetMeResponse, error)
 }
 
@@ -112,6 +118,26 @@ func (c *authServiceClient) MobileLogout(ctx context.Context, in *MobileLogoutRe
 	return out, nil
 }
 
+func (c *authServiceClient) ListMobileSessions(ctx context.Context, in *ListMobileSessionsRequest, opts ...grpc.CallOption) (*ListMobileSessionsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListMobileSessionsResponse)
+	err := c.cc.Invoke(ctx, AuthService_ListMobileSessions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) RevokeMobileSession(ctx context.Context, in *RevokeMobileSessionRequest, opts ...grpc.CallOption) (*RevokeMobileSessionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RevokeMobileSessionResponse)
+	err := c.cc.Invoke(ctx, AuthService_RevokeMobileSession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *authServiceClient) GetMe(ctx context.Context, in *GetMeRequest, opts ...grpc.CallOption) (*GetMeResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetMeResponse)
@@ -135,6 +161,10 @@ type AuthServiceServer interface {
 	MobileLogin(context.Context, *MobileLoginRequest) (*MobileLoginResponse, error)
 	MobileRefresh(context.Context, *MobileRefreshRequest) (*MobileRefreshResponse, error)
 	MobileLogout(context.Context, *MobileLogoutRequest) (*MobileLogoutResponse, error)
+	// Device sessions are the caller's own mobile refresh-token sessions. Both
+	// RPCs require a Bearer access token.
+	ListMobileSessions(context.Context, *ListMobileSessionsRequest) (*ListMobileSessionsResponse, error)
+	RevokeMobileSession(context.Context, *RevokeMobileSessionRequest) (*RevokeMobileSessionResponse, error)
 	GetMe(context.Context, *GetMeRequest) (*GetMeResponse, error)
 }
 
@@ -162,6 +192,12 @@ func (UnimplementedAuthServiceServer) MobileRefresh(context.Context, *MobileRefr
 }
 func (UnimplementedAuthServiceServer) MobileLogout(context.Context, *MobileLogoutRequest) (*MobileLogoutResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method MobileLogout not implemented")
+}
+func (UnimplementedAuthServiceServer) ListMobileSessions(context.Context, *ListMobileSessionsRequest) (*ListMobileSessionsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListMobileSessions not implemented")
+}
+func (UnimplementedAuthServiceServer) RevokeMobileSession(context.Context, *RevokeMobileSessionRequest) (*RevokeMobileSessionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RevokeMobileSession not implemented")
 }
 func (UnimplementedAuthServiceServer) GetMe(context.Context, *GetMeRequest) (*GetMeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetMe not implemented")
@@ -294,6 +330,42 @@ func _AuthService_MobileLogout_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AuthService_ListMobileSessions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListMobileSessionsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).ListMobileSessions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_ListMobileSessions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).ListMobileSessions(ctx, req.(*ListMobileSessionsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_RevokeMobileSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevokeMobileSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).RevokeMobileSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_RevokeMobileSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).RevokeMobileSession(ctx, req.(*RevokeMobileSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AuthService_GetMe_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetMeRequest)
 	if err := dec(in); err != nil {
@@ -342,6 +414,14 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "MobileLogout",
 			Handler:    _AuthService_MobileLogout_Handler,
+		},
+		{
+			MethodName: "ListMobileSessions",
+			Handler:    _AuthService_ListMobileSessions_Handler,
+		},
+		{
+			MethodName: "RevokeMobileSession",
+			Handler:    _AuthService_RevokeMobileSession_Handler,
 		},
 		{
 			MethodName: "GetMe",

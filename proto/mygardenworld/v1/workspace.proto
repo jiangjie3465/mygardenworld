@@ -2,6 +2,9 @@ syntax = "proto3";
 
 package mygardenworld.v1;
 
+option java_multiple_files = true;
+option java_package = "com.mygardenworld.v1";
+
 import "google/protobuf/timestamp.proto";
 import "mygardenworld/v1/account.proto";
 import "mygardenworld/v1/channel.proto";

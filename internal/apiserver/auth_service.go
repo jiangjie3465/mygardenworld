@@ -241,6 +241,52 @@ func (svc *Services) MobileLogout(ctx context.Context, req *connect.Request[pb.M
 	return connect.NewResponse(&pb.MobileLogoutResponse{}), nil
 }
 
+func (svc *Services) ListMobileSessions(ctx context.Context, req *connect.Request[pb.ListMobileSessionsRequest]) (*connect.Response[pb.ListMobileSessionsResponse], error) {
+	userID := auth.UserIDFromContext(ctx)
+	if userID == 0 {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("登录已过期，请重新登录"))
+	}
+	sessions, err := svc.DB.ListMobileSessions(ctx, userID)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	currentDevice := strings.TrimSpace(req.Msg.GetDeviceId())
+	out := make([]*pb.MobileSession, 0, len(sessions))
+	for _, s := range sessions {
+		item := &pb.MobileSession{
+			Id:         s.ID,
+			DeviceId:   s.DeviceID,
+			DeviceName: s.DeviceName,
+			CreatedAt:  timestamppb.New(s.CreatedAt),
+			ExpiresAt:  timestamppb.New(s.ExpiresAt),
+			Current:    currentDevice != "" && s.DeviceID == currentDevice,
+		}
+		if !s.LastUsedAt.IsZero() {
+			item.LastUsedAt = timestamppb.New(s.LastUsedAt)
+		}
+		out = append(out, item)
+	}
+	return connect.NewResponse(&pb.ListMobileSessionsResponse{Sessions: out}), nil
+}
+
+func (svc *Services) RevokeMobileSession(ctx context.Context, req *connect.Request[pb.RevokeMobileSessionRequest]) (*connect.Response[pb.RevokeMobileSessionResponse], error) {
+	userID := auth.UserIDFromContext(ctx)
+	if userID == 0 {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("登录已过期，请重新登录"))
+	}
+	sessionID := req.Msg.GetSessionId()
+	if sessionID <= 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("会话标识无效"))
+	}
+	if err := svc.DB.RevokeMobileSession(ctx, userID, sessionID); err != nil {
+		if errors.Is(err, store.ErrMobileSessionNotFound) {
+			return nil, connect.NewError(connect.CodeNotFound, errors.New("设备会话不存在"))
+		}
+		return nil, mapErr(err)
+	}
+	return connect.NewResponse(&pb.RevokeMobileSessionResponse{}), nil
+}
+
 func (svc *Services) newMobileTokenResponse(ctx context.Context, user *store.User, deviceID, deviceName string) (*connect.Response[pb.MobileLoginResponse], error) {
 	count, err := svc.DB.CountAccountsByUser(ctx, user.ID)
 	if err != nil {

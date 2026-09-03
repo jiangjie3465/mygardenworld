@@ -1,4 +1,4 @@
-.PHONY: default help install build reset-data compact-db catalog-gen require-secrets backend server api test test-race vet lint proto-gen proto-gen-web proto-check web-deps frontend web web-dev web-build web-lint web-test dev check clean
+.PHONY: android\:test android\:lint android\:build android\:check default help install build reset-data compact-db catalog-gen require-secrets backend server api test test-race vet lint proto-gen proto-gen-web proto-check web-deps frontend web web-dev web-build web-lint web-test dev check clean
 
 BIN_DIR ?= bin
 DATA_DIR ?= data
@@ -62,6 +62,10 @@ help:
 	@echo "  dev                  Start backend and frontend together"
 	@echo "  dev:debug            Start debug backend and frontend together"
 	@echo "  check                Run backend tests plus frontend lint/build"
+	@echo "  android:test         Run Android JVM unit tests"
+	@echo "  android:lint         Run Android lint"
+	@echo "  android:build        Assemble Android debug APK"
+	@echo "  android:check        Run Android test, lint, and debug build"
 	@echo "  clean                Remove build artifacts"
 
 install:
@@ -155,6 +159,18 @@ dev\:debug:
 	$(MAKE) -j2 backend:debug frontend
 
 check: test vet lint web-test web-lint web-build
+
+android\:test:
+	cd android && ./gradlew --console=plain test
+
+android\:lint:
+	cd android && ./gradlew --console=plain lint
+
+android\:build:
+	cd android && ./gradlew --console=plain assembleDebug
+
+android\:check:
+	cd android && ./gradlew --console=plain test lint assembleDebug
 
 clean:
 	$(RM_BIN)

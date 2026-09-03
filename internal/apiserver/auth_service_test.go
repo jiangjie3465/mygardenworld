@@ -309,3 +309,183 @@ func createTestUser(t *testing.T, ctx context.Context, db *store.DB, username, e
 		}
 	}
 }
+
+func TestMobileRefreshRejectsReplayExpiredDisabledAndRevoked(t *testing.T) {
+	ctx := context.Background()
+	svc := newAuthTestService(t, LoginLimiterConfig{UserFailures: 100, IPFailures: 100})
+	createTestUser(t, ctx, svc.DB, "owner", "owner@example.test", "ValidPass123!", "active")
+	mobileLogin := func(t *testing.T, device string) string {
+		t.Helper()
+		resp, err := svc.MobileLogin(ctx, connect.NewRequest(&pb.MobileLoginRequest{
+			Username: "owner", Password: "ValidPass123!", DeviceId: device, DeviceName: device,
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp.Msg.GetRefreshToken()
+	}
+	owner, err := svc.DB.GetUserByUsername(ctx, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name  string
+		token func(t *testing.T) string
+		want  connect.Code
+	}{
+		{
+			name: "replayed token after rotation",
+			token: func(t *testing.T) string {
+				old := mobileLogin(t, "replay")
+				if _, err := svc.MobileRefresh(ctx, connect.NewRequest(&pb.MobileRefreshRequest{RefreshToken: old})); err != nil {
+					t.Fatal(err)
+				}
+				return old
+			},
+			want: connect.CodeUnauthenticated,
+		},
+		{
+			name: "expired token",
+			token: func(t *testing.T) string {
+				if err := svc.DB.SaveRefreshTokenSession(ctx, owner.ID, "expired-mobile", time.Now().Add(-time.Minute), "mobile", "expired", ""); err != nil {
+					t.Fatal(err)
+				}
+				return "expired-mobile"
+			},
+			want: connect.CodeUnauthenticated,
+		},
+		{
+			name: "web token on mobile refresh",
+			token: func(t *testing.T) string {
+				if err := svc.DB.SaveRefreshToken(ctx, owner.ID, "web-only", time.Now().Add(time.Hour)); err != nil {
+					t.Fatal(err)
+				}
+				return "web-only"
+			},
+			want: connect.CodeUnauthenticated,
+		},
+		{
+			name: "revoked device session",
+			token: func(t *testing.T) string {
+				token := mobileLogin(t, "revoked")
+				userCtx := auth.ContextWithIdentity(ctx, &auth.Identity{UserID: owner.ID, Role: "user"})
+				list, err := svc.ListMobileSessions(userCtx, connect.NewRequest(&pb.ListMobileSessionsRequest{}))
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, s := range list.Msg.GetSessions() {
+					if s.GetDeviceId() == "revoked" {
+						if _, err := svc.RevokeMobileSession(userCtx, connect.NewRequest(&pb.RevokeMobileSessionRequest{SessionId: s.GetId()})); err != nil {
+							t.Fatal(err)
+						}
+					}
+				}
+				return token
+			},
+			want: connect.CodeUnauthenticated,
+		},
+		{
+			name: "disabled user",
+			token: func(t *testing.T) string {
+				token := mobileLogin(t, "disabled")
+				status := "disabled"
+				if _, err := svc.DB.UpdateUser(ctx, owner.ID, nil, nil, &status); err != nil {
+					t.Fatal(err)
+				}
+				return token
+			},
+			want: connect.CodePermissionDenied,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			token := tc.token(t)
+			_, err := svc.MobileRefresh(ctx, connect.NewRequest(&pb.MobileRefreshRequest{RefreshToken: token}))
+			if connect.CodeOf(err) != tc.want {
+				t.Fatalf("MobileRefresh code=%s err=%v, want %s", connect.CodeOf(err), err, tc.want)
+			}
+		})
+	}
+}
+
+func TestListMobileSessionsMarksCurrentDeviceAndHidesOtherUsers(t *testing.T) {
+	ctx := context.Background()
+	svc := newAuthTestService(t, LoginLimiterConfig{UserFailures: 100, IPFailures: 100})
+	createTestUser(t, ctx, svc.DB, "owner", "owner@example.test", "ValidPass123!", "active")
+	createTestUser(t, ctx, svc.DB, "other", "other@example.test", "ValidPass123!", "active")
+	for _, in := range []*pb.MobileLoginRequest{
+		{Username: "owner", Password: "ValidPass123!", DeviceId: "phone", DeviceName: "Redmi"},
+		{Username: "owner", Password: "ValidPass123!", DeviceId: "tablet", DeviceName: "Pad"},
+		{Username: "other", Password: "ValidPass123!", DeviceId: "phone", DeviceName: "Other phone"},
+	} {
+		if _, err := svc.MobileLogin(ctx, connect.NewRequest(in)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := svc.Login(ctx, connect.NewRequest(&pb.LoginRequest{Username: "owner", Password: "ValidPass123!"})); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := svc.DB.GetUserByUsername(ctx, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := svc.ListMobileSessions(ctx, connect.NewRequest(&pb.ListMobileSessionsRequest{})); connect.CodeOf(err) != connect.CodeUnauthenticated {
+		t.Fatalf("anonymous ListMobileSessions code=%s, want Unauthenticated", connect.CodeOf(err))
+	}
+	userCtx := auth.ContextWithIdentity(ctx, &auth.Identity{UserID: owner.ID, Role: "user"})
+	resp, err := svc.ListMobileSessions(userCtx, connect.NewRequest(&pb.ListMobileSessionsRequest{DeviceId: "phone"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions := resp.Msg.GetSessions()
+	if len(sessions) != 2 {
+		t.Fatalf("sessions=%d, want 2 (web token and other user's session excluded)", len(sessions))
+	}
+	current := map[string]bool{}
+	for _, s := range sessions {
+		current[s.GetDeviceId()] = s.GetCurrent()
+		if s.GetCreatedAt() == nil || s.GetExpiresAt() == nil || s.GetLastUsedAt() == nil {
+			t.Fatalf("session %d is missing timestamps: %v", s.GetId(), s)
+		}
+	}
+	if !current["phone"] || current["tablet"] {
+		t.Fatalf("current flags=%v, want only phone", current)
+	}
+}
+
+func TestRevokeMobileSessionOnlyAffectsOwnSessions(t *testing.T) {
+	ctx := context.Background()
+	svc := newAuthTestService(t, LoginLimiterConfig{UserFailures: 100, IPFailures: 100})
+	createTestUser(t, ctx, svc.DB, "owner", "owner@example.test", "ValidPass123!", "active")
+	createTestUser(t, ctx, svc.DB, "other", "other@example.test", "ValidPass123!", "active")
+	otherLogin, err := svc.MobileLogin(ctx, connect.NewRequest(&pb.MobileLoginRequest{
+		Username: "other", Password: "ValidPass123!", DeviceId: "other-phone",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := svc.DB.GetUserByUsername(ctx, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := svc.DB.GetUserByUsername(ctx, "other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherSessions, err := svc.DB.ListMobileSessions(ctx, other.ID)
+	if err != nil || len(otherSessions) != 1 {
+		t.Fatalf("other sessions=%v err=%v", otherSessions, err)
+	}
+	ownerCtx := auth.ContextWithIdentity(ctx, &auth.Identity{UserID: owner.ID, Role: "user"})
+
+	if _, err := svc.RevokeMobileSession(ownerCtx, connect.NewRequest(&pb.RevokeMobileSessionRequest{SessionId: 0})); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("zero session id code=%s, want InvalidArgument", connect.CodeOf(err))
+	}
+	if _, err := svc.RevokeMobileSession(ownerCtx, connect.NewRequest(&pb.RevokeMobileSessionRequest{SessionId: otherSessions[0].ID})); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("cross-user revoke code=%s err=%v, want NotFound", connect.CodeOf(err), err)
+	}
+	if _, err := svc.MobileRefresh(ctx, connect.NewRequest(&pb.MobileRefreshRequest{RefreshToken: otherLogin.Msg.GetRefreshToken()})); err != nil {
+		t.Fatalf("other user's session was affected by cross-user revoke: %v", err)
+	}
+}

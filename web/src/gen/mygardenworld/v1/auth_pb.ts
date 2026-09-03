@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file mygardenworld/v1/auth.proto.
  */
 export const file_mygardenworld_v1_auth: GenFile = /*@__PURE__*/
-  fileDesc("ChtteWdhcmRlbndvcmxkL3YxL2F1dGgucHJvdG8SEG15Z2FyZGVud29ybGQudjEimwIKBFVzZXISCgoCaWQYASABKAMSEAoIdXNlcm5hbWUYAiABKAkSDQoFZW1haWwYAyABKAkSKAoEcm9sZRgEIAEoDjIaLm15Z2FyZGVud29ybGQudjEuVXNlclJvbGUSFAoMbWF4X2FjY291bnRzGAUgASgFEhgKEGN1cnJlbnRfYWNjb3VudHMYBiABKAUSLAoGc3RhdHVzGAcgASgOMhwubXlnYXJkZW53b3JsZC52MS5Vc2VyU3RhdHVzEi4KCmNyZWF0ZWRfYXQYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIjIKDExvZ2luUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCRIQCghwYXNzd29yZBgCIAEoCSJLCg1Mb2dpblJlc3BvbnNlEhQKDGFjY2Vzc190b2tlbhgBIAEoCRIkCgR1c2VyGAIgASgLMhYubXlnYXJkZW53b3JsZC52MS5Vc2VyIhAKDlJlZnJlc2hSZXF1ZXN0Ik0KD1JlZnJlc2hSZXNwb25zZRIUCgxhY2Nlc3NfdG9rZW4YASABKAkSJAoEdXNlchgCIAEoCzIWLm15Z2FyZGVud29ybGQudjEuVXNlciIPCg1Mb2dvdXRSZXF1ZXN0IhAKDkxvZ291dFJlc3BvbnNlImAKEk1vYmlsZUxvZ2luUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCRIQCghwYXNzd29yZBgCIAEoCRIRCglkZXZpY2VfaWQYAyABKAkSEwoLZGV2aWNlX25hbWUYBCABKAki1wEKE01vYmlsZUxvZ2luUmVzcG9uc2USFAoMYWNjZXNzX3Rva2VuGAEgASgJEhUKDXJlZnJlc2hfdG9rZW4YAiABKAkSNQoRYWNjZXNzX2V4cGlyZXNfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjYKEnJlZnJlc2hfZXhwaXJlc19hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJAoEdXNlchgFIAEoCzIWLm15Z2FyZGVud29ybGQudjEuVXNlciItChRNb2JpbGVSZWZyZXNoUmVxdWVzdBIVCg1yZWZyZXNoX3Rva2VuGAEgASgJItkBChVNb2JpbGVSZWZyZXNoUmVzcG9uc2USFAoMYWNjZXNzX3Rva2VuGAEgASgJEhUKDXJlZnJlc2hfdG9rZW4YAiABKAkSNQoRYWNjZXNzX2V4cGlyZXNfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjYKEnJlZnJlc2hfZXhwaXJlc19hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJAoEdXNlchgFIAEoCzIWLm15Z2FyZGVud29ybGQudjEuVXNlciIsChNNb2JpbGVMb2dvdXRSZXF1ZXN0EhUKDXJlZnJlc2hfdG9rZW4YASABKAkiFgoUTW9iaWxlTG9nb3V0UmVzcG9uc2UiDgoMR2V0TWVSZXF1ZXN0IjUKDUdldE1lUmVzcG9uc2USJAoEdXNlchgBIAEoCzIWLm15Z2FyZGVud29ybGQudjEuVXNlcipOCghVc2VyUm9sZRIZChVVU0VSX1JPTEVfVU5TUEVDSUZJRUQQABISCg5VU0VSX1JPTEVfVVNFUhABEhMKD1VTRVJfUk9MRV9BRE1JThACKlsKClVzZXJTdGF0dXMSGwoXVVNFUl9TVEFUVVNfVU5TUEVDSUZJRUQQABIWChJVU0VSX1NUQVRVU19BQ1RJVkUQARIYChRVU0VSX1NUQVRVU19ESVNBQkxFRBACMtsECgtBdXRoU2VydmljZRJICgVMb2dpbhIeLm15Z2FyZGVud29ybGQudjEuTG9naW5SZXF1ZXN0Gh8ubXlnYXJkZW53b3JsZC52MS5Mb2dpblJlc3BvbnNlEk4KB1JlZnJlc2gSIC5teWdhcmRlbndvcmxkLnYxLlJlZnJlc2hSZXF1ZXN0GiEubXlnYXJkZW53b3JsZC52MS5SZWZyZXNoUmVzcG9uc2USSwoGTG9nb3V0Eh8ubXlnYXJkZW53b3JsZC52MS5Mb2dvdXRSZXF1ZXN0GiAubXlnYXJkZW53b3JsZC52MS5Mb2dvdXRSZXNwb25zZRJaCgtNb2JpbGVMb2dpbhIkLm15Z2FyZGVud29ybGQudjEuTW9iaWxlTG9naW5SZXF1ZXN0GiUubXlnYXJkZW53b3JsZC52MS5Nb2JpbGVMb2dpblJlc3BvbnNlEmAKDU1vYmlsZVJlZnJlc2gSJi5teWdhcmRlbndvcmxkLnYxLk1vYmlsZVJlZnJlc2hSZXF1ZXN0GicubXlnYXJkZW53b3JsZC52MS5Nb2JpbGVSZWZyZXNoUmVzcG9uc2USXQoMTW9iaWxlTG9nb3V0EiUubXlnYXJkZW53b3JsZC52MS5Nb2JpbGVMb2dvdXRSZXF1ZXN0GiYubXlnYXJkZW53b3JsZC52MS5Nb2JpbGVMb2dvdXRSZXNwb25zZRJICgVHZXRNZRIeLm15Z2FyZGVud29ybGQudjEuR2V0TWVSZXF1ZXN0Gh8ubXlnYXJkZW53b3JsZC52MS5HZXRNZVJlc3BvbnNlQoIBChRjb20ubXlnYXJkZW53b3JsZC52MUIJQXV0aFByb3RvUAGiAgNNWFiqAhBNeWdhcmRlbndvcmxkLlYxygIQTXlnYXJkZW53b3JsZFxWMeICHE15Z2FyZGVud29ybGRcVjFcR1BCTWV0YWRhdGHqAhFNeWdhcmRlbndvcmxkOjpWMWIGcHJvdG8z", [file_google_protobuf_timestamp]);
+  fileDesc("ChtteWdhcmRlbndvcmxkL3YxL2F1dGgucHJvdG8SEG15Z2FyZGVud29ybGQudjEimwIKBFVzZXISCgoCaWQYASABKAMSEAoIdXNlcm5hbWUYAiABKAkSDQoFZW1haWwYAyABKAkSKAoEcm9sZRgEIAEoDjIaLm15Z2FyZGVud29ybGQudjEuVXNlclJvbGUSFAoMbWF4X2FjY291bnRzGAUgASgFEhgKEGN1cnJlbnRfYWNjb3VudHMYBiABKAUSLAoGc3RhdHVzGAcgASgOMhwubXlnYXJkZW53b3JsZC52MS5Vc2VyU3RhdHVzEi4KCmNyZWF0ZWRfYXQYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIjIKDExvZ2luUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCRIQCghwYXNzd29yZBgCIAEoCSJLCg1Mb2dpblJlc3BvbnNlEhQKDGFjY2Vzc190b2tlbhgBIAEoCRIkCgR1c2VyGAIgASgLMhYubXlnYXJkZW53b3JsZC52MS5Vc2VyIhAKDlJlZnJlc2hSZXF1ZXN0Ik0KD1JlZnJlc2hSZXNwb25zZRIUCgxhY2Nlc3NfdG9rZW4YASABKAkSJAoEdXNlchgCIAEoCzIWLm15Z2FyZGVud29ybGQudjEuVXNlciIPCg1Mb2dvdXRSZXF1ZXN0IhAKDkxvZ291dFJlc3BvbnNlImAKEk1vYmlsZUxvZ2luUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCRIQCghwYXNzd29yZBgCIAEoCRIRCglkZXZpY2VfaWQYAyABKAkSEwoLZGV2aWNlX25hbWUYBCABKAki1wEKE01vYmlsZUxvZ2luUmVzcG9uc2USFAoMYWNjZXNzX3Rva2VuGAEgASgJEhUKDXJlZnJlc2hfdG9rZW4YAiABKAkSNQoRYWNjZXNzX2V4cGlyZXNfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjYKEnJlZnJlc2hfZXhwaXJlc19hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJAoEdXNlchgFIAEoCzIWLm15Z2FyZGVud29ybGQudjEuVXNlciItChRNb2JpbGVSZWZyZXNoUmVxdWVzdBIVCg1yZWZyZXNoX3Rva2VuGAEgASgJItkBChVNb2JpbGVSZWZyZXNoUmVzcG9uc2USFAoMYWNjZXNzX3Rva2VuGAEgASgJEhUKDXJlZnJlc2hfdG9rZW4YAiABKAkSNQoRYWNjZXNzX2V4cGlyZXNfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjYKEnJlZnJlc2hfZXhwaXJlc19hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJAoEdXNlchgFIAEoCzIWLm15Z2FyZGVud29ybGQudjEuVXNlciIsChNNb2JpbGVMb2dvdXRSZXF1ZXN0EhUKDXJlZnJlc2hfdG9rZW4YASABKAkiFgoUTW9iaWxlTG9nb3V0UmVzcG9uc2Ui5gEKDU1vYmlsZVNlc3Npb24SCgoCaWQYASABKAMSEQoJZGV2aWNlX2lkGAIgASgJEhMKC2RldmljZV9uYW1lGAMgASgJEi4KCmNyZWF0ZWRfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjAKDGxhc3RfdXNlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKZXhwaXJlc19hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDwoHY3VycmVudBgHIAEoCCIuChlMaXN0TW9iaWxlU2Vzc2lvbnNSZXF1ZXN0EhEKCWRldmljZV9pZBgBIAEoCSJPChpMaXN0TW9iaWxlU2Vzc2lvbnNSZXNwb25zZRIxCghzZXNzaW9ucxgBIAMoCzIfLm15Z2FyZGVud29ybGQudjEuTW9iaWxlU2Vzc2lvbiIwChpSZXZva2VNb2JpbGVTZXNzaW9uUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgDIh0KG1Jldm9rZU1vYmlsZVNlc3Npb25SZXNwb25zZSIOCgxHZXRNZVJlcXVlc3QiNQoNR2V0TWVSZXNwb25zZRIkCgR1c2VyGAEgASgLMhYubXlnYXJkZW53b3JsZC52MS5Vc2VyKk4KCFVzZXJSb2xlEhkKFVVTRVJfUk9MRV9VTlNQRUNJRklFRBAAEhIKDlVTRVJfUk9MRV9VU0VSEAESEwoPVVNFUl9ST0xFX0FETUlOEAIqWwoKVXNlclN0YXR1cxIbChdVU0VSX1NUQVRVU19VTlNQRUNJRklFRBAAEhYKElVTRVJfU1RBVFVTX0FDVElWRRABEhgKFFVTRVJfU1RBVFVTX0RJU0FCTEVEEAIywAYKC0F1dGhTZXJ2aWNlEkgKBUxvZ2luEh4ubXlnYXJkZW53b3JsZC52MS5Mb2dpblJlcXVlc3QaHy5teWdhcmRlbndvcmxkLnYxLkxvZ2luUmVzcG9uc2USTgoHUmVmcmVzaBIgLm15Z2FyZGVud29ybGQudjEuUmVmcmVzaFJlcXVlc3QaIS5teWdhcmRlbndvcmxkLnYxLlJlZnJlc2hSZXNwb25zZRJLCgZMb2dvdXQSHy5teWdhcmRlbndvcmxkLnYxLkxvZ291dFJlcXVlc3QaIC5teWdhcmRlbndvcmxkLnYxLkxvZ291dFJlc3BvbnNlEloKC01vYmlsZUxvZ2luEiQubXlnYXJkZW53b3JsZC52MS5Nb2JpbGVMb2dpblJlcXVlc3QaJS5teWdhcmRlbndvcmxkLnYxLk1vYmlsZUxvZ2luUmVzcG9uc2USYAoNTW9iaWxlUmVmcmVzaBImLm15Z2FyZGVud29ybGQudjEuTW9iaWxlUmVmcmVzaFJlcXVlc3QaJy5teWdhcmRlbndvcmxkLnYxLk1vYmlsZVJlZnJlc2hSZXNwb25zZRJdCgxNb2JpbGVMb2dvdXQSJS5teWdhcmRlbndvcmxkLnYxLk1vYmlsZUxvZ291dFJlcXVlc3QaJi5teWdhcmRlbndvcmxkLnYxLk1vYmlsZUxvZ291dFJlc3BvbnNlEm8KEkxpc3RNb2JpbGVTZXNzaW9ucxIrLm15Z2FyZGVud29ybGQudjEuTGlzdE1vYmlsZVNlc3Npb25zUmVxdWVzdBosLm15Z2FyZGVud29ybGQudjEuTGlzdE1vYmlsZVNlc3Npb25zUmVzcG9uc2UScgoTUmV2b2tlTW9iaWxlU2Vzc2lvbhIsLm15Z2FyZGVud29ybGQudjEuUmV2b2tlTW9iaWxlU2Vzc2lvblJlcXVlc3QaLS5teWdhcmRlbndvcmxkLnYxLlJldm9rZU1vYmlsZVNlc3Npb25SZXNwb25zZRJICgVHZXRNZRIeLm15Z2FyZGVud29ybGQudjEuR2V0TWVSZXF1ZXN0Gh8ubXlnYXJkZW53b3JsZC52MS5HZXRNZVJlc3BvbnNlQoIBChRjb20ubXlnYXJkZW53b3JsZC52MUIJQXV0aFByb3RvUAGiAgNNWFiqAhBNeWdhcmRlbndvcmxkLlYxygIQTXlnYXJkZW53b3JsZFxWMeICHE15Z2FyZGVud29ybGRcVjFcR1BCTWV0YWRhdGHqAhFNeWdhcmRlbndvcmxkOjpWMWIGcHJvdG8z", [file_google_protobuf_timestamp]);
 
 /**
  * @generated from message mygardenworld.v1.User
@@ -330,6 +330,124 @@ export const MobileLogoutResponseSchema: GenMessage<MobileLogoutResponse> = /*@_
   messageDesc(file_mygardenworld_v1_auth, 12);
 
 /**
+ * MobileSession describes one mobile refresh-token session. The token itself
+ * is never returned.
+ *
+ * @generated from message mygardenworld.v1.MobileSession
+ */
+export type MobileSession = Message<"mygardenworld.v1.MobileSession"> & {
+  /**
+   * @generated from field: int64 id = 1;
+   */
+  id: bigint;
+
+  /**
+   * @generated from field: string device_id = 2;
+   */
+  deviceId: string;
+
+  /**
+   * @generated from field: string device_name = 3;
+   */
+  deviceName: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp created_at = 4;
+   */
+  createdAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp last_used_at = 5;
+   */
+  lastUsedAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp expires_at = 6;
+   */
+  expiresAt?: Timestamp | undefined;
+
+  /**
+   * current is true when device_id matches the requesting device.
+   *
+   * @generated from field: bool current = 7;
+   */
+  current: boolean;
+};
+
+/**
+ * Describes the message mygardenworld.v1.MobileSession.
+ * Use `create(MobileSessionSchema)` to create a new message.
+ */
+export const MobileSessionSchema: GenMessage<MobileSession> = /*@__PURE__*/
+  messageDesc(file_mygardenworld_v1_auth, 13);
+
+/**
+ * @generated from message mygardenworld.v1.ListMobileSessionsRequest
+ */
+export type ListMobileSessionsRequest = Message<"mygardenworld.v1.ListMobileSessionsRequest"> & {
+  /**
+   * device_id of the caller, used only to mark the current session.
+   *
+   * @generated from field: string device_id = 1;
+   */
+  deviceId: string;
+};
+
+/**
+ * Describes the message mygardenworld.v1.ListMobileSessionsRequest.
+ * Use `create(ListMobileSessionsRequestSchema)` to create a new message.
+ */
+export const ListMobileSessionsRequestSchema: GenMessage<ListMobileSessionsRequest> = /*@__PURE__*/
+  messageDesc(file_mygardenworld_v1_auth, 14);
+
+/**
+ * @generated from message mygardenworld.v1.ListMobileSessionsResponse
+ */
+export type ListMobileSessionsResponse = Message<"mygardenworld.v1.ListMobileSessionsResponse"> & {
+  /**
+   * @generated from field: repeated mygardenworld.v1.MobileSession sessions = 1;
+   */
+  sessions: MobileSession[];
+};
+
+/**
+ * Describes the message mygardenworld.v1.ListMobileSessionsResponse.
+ * Use `create(ListMobileSessionsResponseSchema)` to create a new message.
+ */
+export const ListMobileSessionsResponseSchema: GenMessage<ListMobileSessionsResponse> = /*@__PURE__*/
+  messageDesc(file_mygardenworld_v1_auth, 15);
+
+/**
+ * @generated from message mygardenworld.v1.RevokeMobileSessionRequest
+ */
+export type RevokeMobileSessionRequest = Message<"mygardenworld.v1.RevokeMobileSessionRequest"> & {
+  /**
+   * @generated from field: int64 session_id = 1;
+   */
+  sessionId: bigint;
+};
+
+/**
+ * Describes the message mygardenworld.v1.RevokeMobileSessionRequest.
+ * Use `create(RevokeMobileSessionRequestSchema)` to create a new message.
+ */
+export const RevokeMobileSessionRequestSchema: GenMessage<RevokeMobileSessionRequest> = /*@__PURE__*/
+  messageDesc(file_mygardenworld_v1_auth, 16);
+
+/**
+ * @generated from message mygardenworld.v1.RevokeMobileSessionResponse
+ */
+export type RevokeMobileSessionResponse = Message<"mygardenworld.v1.RevokeMobileSessionResponse"> & {
+};
+
+/**
+ * Describes the message mygardenworld.v1.RevokeMobileSessionResponse.
+ * Use `create(RevokeMobileSessionResponseSchema)` to create a new message.
+ */
+export const RevokeMobileSessionResponseSchema: GenMessage<RevokeMobileSessionResponse> = /*@__PURE__*/
+  messageDesc(file_mygardenworld_v1_auth, 17);
+
+/**
  * @generated from message mygardenworld.v1.GetMeRequest
  */
 export type GetMeRequest = Message<"mygardenworld.v1.GetMeRequest"> & {
@@ -340,7 +458,7 @@ export type GetMeRequest = Message<"mygardenworld.v1.GetMeRequest"> & {
  * Use `create(GetMeRequestSchema)` to create a new message.
  */
 export const GetMeRequestSchema: GenMessage<GetMeRequest> = /*@__PURE__*/
-  messageDesc(file_mygardenworld_v1_auth, 13);
+  messageDesc(file_mygardenworld_v1_auth, 18);
 
 /**
  * @generated from message mygardenworld.v1.GetMeResponse
@@ -357,7 +475,7 @@ export type GetMeResponse = Message<"mygardenworld.v1.GetMeResponse"> & {
  * Use `create(GetMeResponseSchema)` to create a new message.
  */
 export const GetMeResponseSchema: GenMessage<GetMeResponse> = /*@__PURE__*/
-  messageDesc(file_mygardenworld_v1_auth, 14);
+  messageDesc(file_mygardenworld_v1_auth, 19);
 
 /**
  * User is a platform user (not a game account).
@@ -468,6 +586,25 @@ export const AuthService: GenService<{
     methodKind: "unary";
     input: typeof MobileLogoutRequestSchema;
     output: typeof MobileLogoutResponseSchema;
+  },
+  /**
+   * Device sessions are the caller's own mobile refresh-token sessions. Both
+   * RPCs require a Bearer access token.
+   *
+   * @generated from rpc mygardenworld.v1.AuthService.ListMobileSessions
+   */
+  listMobileSessions: {
+    methodKind: "unary";
+    input: typeof ListMobileSessionsRequestSchema;
+    output: typeof ListMobileSessionsResponseSchema;
+  },
+  /**
+   * @generated from rpc mygardenworld.v1.AuthService.RevokeMobileSession
+   */
+  revokeMobileSession: {
+    methodKind: "unary";
+    input: typeof RevokeMobileSessionRequestSchema;
+    output: typeof RevokeMobileSessionResponseSchema;
   },
   /**
    * @generated from rpc mygardenworld.v1.AuthService.GetMe

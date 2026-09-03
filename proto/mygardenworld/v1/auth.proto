@@ -2,6 +2,9 @@ syntax = "proto3";
 
 package mygardenworld.v1;
 
+option java_multiple_files = true;
+option java_package = "com.mygardenworld.v1";
+
 import "google/protobuf/timestamp.proto";
 
 // User is a platform user (not a game account).
@@ -39,6 +42,10 @@ service AuthService {
   rpc MobileLogin(MobileLoginRequest) returns (MobileLoginResponse);
   rpc MobileRefresh(MobileRefreshRequest) returns (MobileRefreshResponse);
   rpc MobileLogout(MobileLogoutRequest) returns (MobileLogoutResponse);
+  // Device sessions are the caller's own mobile refresh-token sessions. Both
+  // RPCs require a Bearer access token.
+  rpc ListMobileSessions(ListMobileSessionsRequest) returns (ListMobileSessionsResponse);
+  rpc RevokeMobileSession(RevokeMobileSessionRequest) returns (RevokeMobileSessionResponse);
   rpc GetMe(GetMeRequest) returns (GetMeResponse);
 }
 
@@ -95,6 +102,34 @@ message MobileLogoutRequest {
 }
 
 message MobileLogoutResponse {}
+
+// MobileSession describes one mobile refresh-token session. The token itself
+// is never returned.
+message MobileSession {
+  int64 id = 1;
+  string device_id = 2;
+  string device_name = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp last_used_at = 5;
+  google.protobuf.Timestamp expires_at = 6;
+  // current is true when device_id matches the requesting device.
+  bool current = 7;
+}
+
+message ListMobileSessionsRequest {
+  // device_id of the caller, used only to mark the current session.
+  string device_id = 1;
+}
+
+message ListMobileSessionsResponse {
+  repeated MobileSession sessions = 1;
+}
+
+message RevokeMobileSessionRequest {
+  int64 session_id = 1;
+}
+
+message RevokeMobileSessionResponse {}
 
 message GetMeRequest {}
 

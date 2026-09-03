@@ -174,3 +174,66 @@ func (d *DB) CleanExpiredTokens(ctx context.Context) error {
 	_, err := d.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE expires_at < ?`, time.Now().UTC())
 	return err
 }
+
+var ErrMobileSessionNotFound = errors.New("mobile session not found")
+
+// MobileSession is one device-scoped mobile refresh-token session. The token
+// hash is intentionally not exposed.
+type MobileSession struct {
+	ID         int64
+	UserID     int64
+	DeviceID   string
+	DeviceName string
+	CreatedAt  time.Time
+	LastUsedAt time.Time
+	ExpiresAt  time.Time
+}
+
+// ListMobileSessions returns the caller's unexpired mobile sessions, most
+// recently used first.
+func (d *DB) ListMobileSessions(ctx context.Context, userID int64) ([]MobileSession, error) {
+	rows, err := d.QueryContext(ctx,
+		`SELECT id, user_id, device_id, device_name, created_at, last_used_at, expires_at
+		 FROM refresh_tokens
+		 WHERE user_id = ? AND client_type = 'mobile' AND expires_at > ?
+		 ORDER BY COALESCE(last_used_at, created_at) DESC, id DESC`,
+		userID, time.Now().UTC(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var sessions []MobileSession
+	for rows.Next() {
+		var s MobileSession
+		var lastUsed sql.NullTime
+		if err := rows.Scan(&s.ID, &s.UserID, &s.DeviceID, &s.DeviceName, &s.CreatedAt, &lastUsed, &s.ExpiresAt); err != nil {
+			return nil, err
+		}
+		if lastUsed.Valid {
+			s.LastUsedAt = lastUsed.Time
+		}
+		sessions = append(sessions, s)
+	}
+	return sessions, rows.Err()
+}
+
+// RevokeMobileSession deletes one of the caller's own mobile sessions. Sessions
+// owned by other users are reported as not found rather than revealed.
+func (d *DB) RevokeMobileSession(ctx context.Context, userID, sessionID int64) error {
+	res, err := d.ExecContext(ctx,
+		`DELETE FROM refresh_tokens WHERE id = ? AND user_id = ? AND client_type = 'mobile'`,
+		sessionID, userID,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrMobileSessionNotFound
+	}
+	return nil
+}

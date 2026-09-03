@@ -837,6 +837,270 @@ func (*MobileLogoutResponse) Descriptor() ([]byte, []int) {
 	return file_mygardenworld_v1_auth_proto_rawDescGZIP(), []int{12}
 }
 
+// MobileSession describes one mobile refresh-token session. The token itself
+// is never returned.
+type MobileSession struct {
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Id         int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	DeviceId   string                 `protobuf:"bytes,2,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	DeviceName string                 `protobuf:"bytes,3,opt,name=device_name,json=deviceName,proto3" json:"device_name,omitempty"`
+	CreatedAt  *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	LastUsedAt *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=last_used_at,json=lastUsedAt,proto3" json:"last_used_at,omitempty"`
+	ExpiresAt  *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	// current is true when device_id matches the requesting device.
+	Current       bool `protobuf:"varint,7,opt,name=current,proto3" json:"current,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MobileSession) Reset() {
+	*x = MobileSession{}
+	mi := &file_mygardenworld_v1_auth_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MobileSession) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MobileSession) ProtoMessage() {}
+
+func (x *MobileSession) ProtoReflect() protoreflect.Message {
+	mi := &file_mygardenworld_v1_auth_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MobileSession.ProtoReflect.Descriptor instead.
+func (*MobileSession) Descriptor() ([]byte, []int) {
+	return file_mygardenworld_v1_auth_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *MobileSession) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *MobileSession) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+func (x *MobileSession) GetDeviceName() string {
+	if x != nil {
+		return x.DeviceName
+	}
+	return ""
+}
+
+func (x *MobileSession) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *MobileSession) GetLastUsedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastUsedAt
+	}
+	return nil
+}
+
+func (x *MobileSession) GetExpiresAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return nil
+}
+
+func (x *MobileSession) GetCurrent() bool {
+	if x != nil {
+		return x.Current
+	}
+	return false
+}
+
+type ListMobileSessionsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// device_id of the caller, used only to mark the current session.
+	DeviceId      string `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListMobileSessionsRequest) Reset() {
+	*x = ListMobileSessionsRequest{}
+	mi := &file_mygardenworld_v1_auth_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListMobileSessionsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListMobileSessionsRequest) ProtoMessage() {}
+
+func (x *ListMobileSessionsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_mygardenworld_v1_auth_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListMobileSessionsRequest.ProtoReflect.Descriptor instead.
+func (*ListMobileSessionsRequest) Descriptor() ([]byte, []int) {
+	return file_mygardenworld_v1_auth_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *ListMobileSessionsRequest) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+type ListMobileSessionsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Sessions      []*MobileSession       `protobuf:"bytes,1,rep,name=sessions,proto3" json:"sessions,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListMobileSessionsResponse) Reset() {
+	*x = ListMobileSessionsResponse{}
+	mi := &file_mygardenworld_v1_auth_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListMobileSessionsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListMobileSessionsResponse) ProtoMessage() {}
+
+func (x *ListMobileSessionsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_mygardenworld_v1_auth_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListMobileSessionsResponse.ProtoReflect.Descriptor instead.
+func (*ListMobileSessionsResponse) Descriptor() ([]byte, []int) {
+	return file_mygardenworld_v1_auth_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *ListMobileSessionsResponse) GetSessions() []*MobileSession {
+	if x != nil {
+		return x.Sessions
+	}
+	return nil
+}
+
+type RevokeMobileSessionRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     int64                  `protobuf:"varint,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevokeMobileSessionRequest) Reset() {
+	*x = RevokeMobileSessionRequest{}
+	mi := &file_mygardenworld_v1_auth_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokeMobileSessionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokeMobileSessionRequest) ProtoMessage() {}
+
+func (x *RevokeMobileSessionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_mygardenworld_v1_auth_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokeMobileSessionRequest.ProtoReflect.Descriptor instead.
+func (*RevokeMobileSessionRequest) Descriptor() ([]byte, []int) {
+	return file_mygardenworld_v1_auth_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *RevokeMobileSessionRequest) GetSessionId() int64 {
+	if x != nil {
+		return x.SessionId
+	}
+	return 0
+}
+
+type RevokeMobileSessionResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevokeMobileSessionResponse) Reset() {
+	*x = RevokeMobileSessionResponse{}
+	mi := &file_mygardenworld_v1_auth_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokeMobileSessionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokeMobileSessionResponse) ProtoMessage() {}
+
+func (x *RevokeMobileSessionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_mygardenworld_v1_auth_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokeMobileSessionResponse.ProtoReflect.Descriptor instead.
+func (*RevokeMobileSessionResponse) Descriptor() ([]byte, []int) {
+	return file_mygardenworld_v1_auth_proto_rawDescGZIP(), []int{17}
+}
+
 type GetMeRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -845,7 +1109,7 @@ type GetMeRequest struct {
 
 func (x *GetMeRequest) Reset() {
 	*x = GetMeRequest{}
-	mi := &file_mygardenworld_v1_auth_proto_msgTypes[13]
+	mi := &file_mygardenworld_v1_auth_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -857,7 +1121,7 @@ func (x *GetMeRequest) String() string {
 func (*GetMeRequest) ProtoMessage() {}
 
 func (x *GetMeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mygardenworld_v1_auth_proto_msgTypes[13]
+	mi := &file_mygardenworld_v1_auth_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -870,7 +1134,7 @@ func (x *GetMeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMeRequest.ProtoReflect.Descriptor instead.
 func (*GetMeRequest) Descriptor() ([]byte, []int) {
-	return file_mygardenworld_v1_auth_proto_rawDescGZIP(), []int{13}
+	return file_mygardenworld_v1_auth_proto_rawDescGZIP(), []int{18}
 }
 
 type GetMeResponse struct {
@@ -882,7 +1146,7 @@ type GetMeResponse struct {
 
 func (x *GetMeResponse) Reset() {
 	*x = GetMeResponse{}
-	mi := &file_mygardenworld_v1_auth_proto_msgTypes[14]
+	mi := &file_mygardenworld_v1_auth_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -894,7 +1158,7 @@ func (x *GetMeResponse) String() string {
 func (*GetMeResponse) ProtoMessage() {}
 
 func (x *GetMeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mygardenworld_v1_auth_proto_msgTypes[14]
+	mi := &file_mygardenworld_v1_auth_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -907,7 +1171,7 @@ func (x *GetMeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMeResponse.ProtoReflect.Descriptor instead.
 func (*GetMeResponse) Descriptor() ([]byte, []int) {
-	return file_mygardenworld_v1_auth_proto_rawDescGZIP(), []int{14}
+	return file_mygardenworld_v1_auth_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *GetMeResponse) GetUser() *User {
@@ -968,7 +1232,27 @@ const file_mygardenworld_v1_auth_proto_rawDesc = "" +
 	"\x04user\x18\x05 \x01(\v2\x16.mygardenworld.v1.UserR\x04user\":\n" +
 	"\x13MobileLogoutRequest\x12#\n" +
 	"\rrefresh_token\x18\x01 \x01(\tR\frefreshToken\"\x16\n" +
-	"\x14MobileLogoutResponse\"\x0e\n" +
+	"\x14MobileLogoutResponse\"\xab\x02\n" +
+	"\rMobileSession\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x1b\n" +
+	"\tdevice_id\x18\x02 \x01(\tR\bdeviceId\x12\x1f\n" +
+	"\vdevice_name\x18\x03 \x01(\tR\n" +
+	"deviceName\x129\n" +
+	"\n" +
+	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12<\n" +
+	"\flast_used_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"lastUsedAt\x129\n" +
+	"\n" +
+	"expires_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12\x18\n" +
+	"\acurrent\x18\a \x01(\bR\acurrent\"8\n" +
+	"\x19ListMobileSessionsRequest\x12\x1b\n" +
+	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\"Y\n" +
+	"\x1aListMobileSessionsResponse\x12;\n" +
+	"\bsessions\x18\x01 \x03(\v2\x1f.mygardenworld.v1.MobileSessionR\bsessions\";\n" +
+	"\x1aRevokeMobileSessionRequest\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\x03R\tsessionId\"\x1d\n" +
+	"\x1bRevokeMobileSessionResponse\"\x0e\n" +
 	"\fGetMeRequest\";\n" +
 	"\rGetMeResponse\x12*\n" +
 	"\x04user\x18\x01 \x01(\v2\x16.mygardenworld.v1.UserR\x04user*N\n" +
@@ -980,14 +1264,16 @@ const file_mygardenworld_v1_auth_proto_rawDesc = "" +
 	"UserStatus\x12\x1b\n" +
 	"\x17USER_STATUS_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12USER_STATUS_ACTIVE\x10\x01\x12\x18\n" +
-	"\x14USER_STATUS_DISABLED\x10\x022\xdb\x04\n" +
+	"\x14USER_STATUS_DISABLED\x10\x022\xc0\x06\n" +
 	"\vAuthService\x12H\n" +
 	"\x05Login\x12\x1e.mygardenworld.v1.LoginRequest\x1a\x1f.mygardenworld.v1.LoginResponse\x12N\n" +
 	"\aRefresh\x12 .mygardenworld.v1.RefreshRequest\x1a!.mygardenworld.v1.RefreshResponse\x12K\n" +
 	"\x06Logout\x12\x1f.mygardenworld.v1.LogoutRequest\x1a .mygardenworld.v1.LogoutResponse\x12Z\n" +
 	"\vMobileLogin\x12$.mygardenworld.v1.MobileLoginRequest\x1a%.mygardenworld.v1.MobileLoginResponse\x12`\n" +
 	"\rMobileRefresh\x12&.mygardenworld.v1.MobileRefreshRequest\x1a'.mygardenworld.v1.MobileRefreshResponse\x12]\n" +
-	"\fMobileLogout\x12%.mygardenworld.v1.MobileLogoutRequest\x1a&.mygardenworld.v1.MobileLogoutResponse\x12H\n" +
+	"\fMobileLogout\x12%.mygardenworld.v1.MobileLogoutRequest\x1a&.mygardenworld.v1.MobileLogoutResponse\x12o\n" +
+	"\x12ListMobileSessions\x12+.mygardenworld.v1.ListMobileSessionsRequest\x1a,.mygardenworld.v1.ListMobileSessionsResponse\x12r\n" +
+	"\x13RevokeMobileSession\x12,.mygardenworld.v1.RevokeMobileSessionRequest\x1a-.mygardenworld.v1.RevokeMobileSessionResponse\x12H\n" +
 	"\x05GetMe\x12\x1e.mygardenworld.v1.GetMeRequest\x1a\x1f.mygardenworld.v1.GetMeResponseB\xcc\x01\n" +
 	"\x14com.mygardenworld.v1B\tAuthProtoP\x01ZHgithub.com/SilkageNet/mygardenworld/gen/mygardenworld/v1;mygardenworldv1\xa2\x02\x03MXX\xaa\x02\x10Mygardenworld.V1\xca\x02\x10Mygardenworld\\V1\xe2\x02\x1cMygardenworld\\V1\\GPBMetadata\xea\x02\x11Mygardenworld::V1b\x06proto3"
 
@@ -1004,60 +1290,73 @@ func file_mygardenworld_v1_auth_proto_rawDescGZIP() []byte {
 }
 
 var file_mygardenworld_v1_auth_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_mygardenworld_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_mygardenworld_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_mygardenworld_v1_auth_proto_goTypes = []any{
-	(UserRole)(0),                 // 0: mygardenworld.v1.UserRole
-	(UserStatus)(0),               // 1: mygardenworld.v1.UserStatus
-	(*User)(nil),                  // 2: mygardenworld.v1.User
-	(*LoginRequest)(nil),          // 3: mygardenworld.v1.LoginRequest
-	(*LoginResponse)(nil),         // 4: mygardenworld.v1.LoginResponse
-	(*RefreshRequest)(nil),        // 5: mygardenworld.v1.RefreshRequest
-	(*RefreshResponse)(nil),       // 6: mygardenworld.v1.RefreshResponse
-	(*LogoutRequest)(nil),         // 7: mygardenworld.v1.LogoutRequest
-	(*LogoutResponse)(nil),        // 8: mygardenworld.v1.LogoutResponse
-	(*MobileLoginRequest)(nil),    // 9: mygardenworld.v1.MobileLoginRequest
-	(*MobileLoginResponse)(nil),   // 10: mygardenworld.v1.MobileLoginResponse
-	(*MobileRefreshRequest)(nil),  // 11: mygardenworld.v1.MobileRefreshRequest
-	(*MobileRefreshResponse)(nil), // 12: mygardenworld.v1.MobileRefreshResponse
-	(*MobileLogoutRequest)(nil),   // 13: mygardenworld.v1.MobileLogoutRequest
-	(*MobileLogoutResponse)(nil),  // 14: mygardenworld.v1.MobileLogoutResponse
-	(*GetMeRequest)(nil),          // 15: mygardenworld.v1.GetMeRequest
-	(*GetMeResponse)(nil),         // 16: mygardenworld.v1.GetMeResponse
-	(*timestamppb.Timestamp)(nil), // 17: google.protobuf.Timestamp
+	(UserRole)(0),                       // 0: mygardenworld.v1.UserRole
+	(UserStatus)(0),                     // 1: mygardenworld.v1.UserStatus
+	(*User)(nil),                        // 2: mygardenworld.v1.User
+	(*LoginRequest)(nil),                // 3: mygardenworld.v1.LoginRequest
+	(*LoginResponse)(nil),               // 4: mygardenworld.v1.LoginResponse
+	(*RefreshRequest)(nil),              // 5: mygardenworld.v1.RefreshRequest
+	(*RefreshResponse)(nil),             // 6: mygardenworld.v1.RefreshResponse
+	(*LogoutRequest)(nil),               // 7: mygardenworld.v1.LogoutRequest
+	(*LogoutResponse)(nil),              // 8: mygardenworld.v1.LogoutResponse
+	(*MobileLoginRequest)(nil),          // 9: mygardenworld.v1.MobileLoginRequest
+	(*MobileLoginResponse)(nil),         // 10: mygardenworld.v1.MobileLoginResponse
+	(*MobileRefreshRequest)(nil),        // 11: mygardenworld.v1.MobileRefreshRequest
+	(*MobileRefreshResponse)(nil),       // 12: mygardenworld.v1.MobileRefreshResponse
+	(*MobileLogoutRequest)(nil),         // 13: mygardenworld.v1.MobileLogoutRequest
+	(*MobileLogoutResponse)(nil),        // 14: mygardenworld.v1.MobileLogoutResponse
+	(*MobileSession)(nil),               // 15: mygardenworld.v1.MobileSession
+	(*ListMobileSessionsRequest)(nil),   // 16: mygardenworld.v1.ListMobileSessionsRequest
+	(*ListMobileSessionsResponse)(nil),  // 17: mygardenworld.v1.ListMobileSessionsResponse
+	(*RevokeMobileSessionRequest)(nil),  // 18: mygardenworld.v1.RevokeMobileSessionRequest
+	(*RevokeMobileSessionResponse)(nil), // 19: mygardenworld.v1.RevokeMobileSessionResponse
+	(*GetMeRequest)(nil),                // 20: mygardenworld.v1.GetMeRequest
+	(*GetMeResponse)(nil),               // 21: mygardenworld.v1.GetMeResponse
+	(*timestamppb.Timestamp)(nil),       // 22: google.protobuf.Timestamp
 }
 var file_mygardenworld_v1_auth_proto_depIdxs = []int32{
 	0,  // 0: mygardenworld.v1.User.role:type_name -> mygardenworld.v1.UserRole
 	1,  // 1: mygardenworld.v1.User.status:type_name -> mygardenworld.v1.UserStatus
-	17, // 2: mygardenworld.v1.User.created_at:type_name -> google.protobuf.Timestamp
-	17, // 3: mygardenworld.v1.User.updated_at:type_name -> google.protobuf.Timestamp
+	22, // 2: mygardenworld.v1.User.created_at:type_name -> google.protobuf.Timestamp
+	22, // 3: mygardenworld.v1.User.updated_at:type_name -> google.protobuf.Timestamp
 	2,  // 4: mygardenworld.v1.LoginResponse.user:type_name -> mygardenworld.v1.User
 	2,  // 5: mygardenworld.v1.RefreshResponse.user:type_name -> mygardenworld.v1.User
-	17, // 6: mygardenworld.v1.MobileLoginResponse.access_expires_at:type_name -> google.protobuf.Timestamp
-	17, // 7: mygardenworld.v1.MobileLoginResponse.refresh_expires_at:type_name -> google.protobuf.Timestamp
+	22, // 6: mygardenworld.v1.MobileLoginResponse.access_expires_at:type_name -> google.protobuf.Timestamp
+	22, // 7: mygardenworld.v1.MobileLoginResponse.refresh_expires_at:type_name -> google.protobuf.Timestamp
 	2,  // 8: mygardenworld.v1.MobileLoginResponse.user:type_name -> mygardenworld.v1.User
-	17, // 9: mygardenworld.v1.MobileRefreshResponse.access_expires_at:type_name -> google.protobuf.Timestamp
-	17, // 10: mygardenworld.v1.MobileRefreshResponse.refresh_expires_at:type_name -> google.protobuf.Timestamp
+	22, // 9: mygardenworld.v1.MobileRefreshResponse.access_expires_at:type_name -> google.protobuf.Timestamp
+	22, // 10: mygardenworld.v1.MobileRefreshResponse.refresh_expires_at:type_name -> google.protobuf.Timestamp
 	2,  // 11: mygardenworld.v1.MobileRefreshResponse.user:type_name -> mygardenworld.v1.User
-	2,  // 12: mygardenworld.v1.GetMeResponse.user:type_name -> mygardenworld.v1.User
-	3,  // 13: mygardenworld.v1.AuthService.Login:input_type -> mygardenworld.v1.LoginRequest
-	5,  // 14: mygardenworld.v1.AuthService.Refresh:input_type -> mygardenworld.v1.RefreshRequest
-	7,  // 15: mygardenworld.v1.AuthService.Logout:input_type -> mygardenworld.v1.LogoutRequest
-	9,  // 16: mygardenworld.v1.AuthService.MobileLogin:input_type -> mygardenworld.v1.MobileLoginRequest
-	11, // 17: mygardenworld.v1.AuthService.MobileRefresh:input_type -> mygardenworld.v1.MobileRefreshRequest
-	13, // 18: mygardenworld.v1.AuthService.MobileLogout:input_type -> mygardenworld.v1.MobileLogoutRequest
-	15, // 19: mygardenworld.v1.AuthService.GetMe:input_type -> mygardenworld.v1.GetMeRequest
-	4,  // 20: mygardenworld.v1.AuthService.Login:output_type -> mygardenworld.v1.LoginResponse
-	6,  // 21: mygardenworld.v1.AuthService.Refresh:output_type -> mygardenworld.v1.RefreshResponse
-	8,  // 22: mygardenworld.v1.AuthService.Logout:output_type -> mygardenworld.v1.LogoutResponse
-	10, // 23: mygardenworld.v1.AuthService.MobileLogin:output_type -> mygardenworld.v1.MobileLoginResponse
-	12, // 24: mygardenworld.v1.AuthService.MobileRefresh:output_type -> mygardenworld.v1.MobileRefreshResponse
-	14, // 25: mygardenworld.v1.AuthService.MobileLogout:output_type -> mygardenworld.v1.MobileLogoutResponse
-	16, // 26: mygardenworld.v1.AuthService.GetMe:output_type -> mygardenworld.v1.GetMeResponse
-	20, // [20:27] is the sub-list for method output_type
-	13, // [13:20] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	22, // 12: mygardenworld.v1.MobileSession.created_at:type_name -> google.protobuf.Timestamp
+	22, // 13: mygardenworld.v1.MobileSession.last_used_at:type_name -> google.protobuf.Timestamp
+	22, // 14: mygardenworld.v1.MobileSession.expires_at:type_name -> google.protobuf.Timestamp
+	15, // 15: mygardenworld.v1.ListMobileSessionsResponse.sessions:type_name -> mygardenworld.v1.MobileSession
+	2,  // 16: mygardenworld.v1.GetMeResponse.user:type_name -> mygardenworld.v1.User
+	3,  // 17: mygardenworld.v1.AuthService.Login:input_type -> mygardenworld.v1.LoginRequest
+	5,  // 18: mygardenworld.v1.AuthService.Refresh:input_type -> mygardenworld.v1.RefreshRequest
+	7,  // 19: mygardenworld.v1.AuthService.Logout:input_type -> mygardenworld.v1.LogoutRequest
+	9,  // 20: mygardenworld.v1.AuthService.MobileLogin:input_type -> mygardenworld.v1.MobileLoginRequest
+	11, // 21: mygardenworld.v1.AuthService.MobileRefresh:input_type -> mygardenworld.v1.MobileRefreshRequest
+	13, // 22: mygardenworld.v1.AuthService.MobileLogout:input_type -> mygardenworld.v1.MobileLogoutRequest
+	16, // 23: mygardenworld.v1.AuthService.ListMobileSessions:input_type -> mygardenworld.v1.ListMobileSessionsRequest
+	18, // 24: mygardenworld.v1.AuthService.RevokeMobileSession:input_type -> mygardenworld.v1.RevokeMobileSessionRequest
+	20, // 25: mygardenworld.v1.AuthService.GetMe:input_type -> mygardenworld.v1.GetMeRequest
+	4,  // 26: mygardenworld.v1.AuthService.Login:output_type -> mygardenworld.v1.LoginResponse
+	6,  // 27: mygardenworld.v1.AuthService.Refresh:output_type -> mygardenworld.v1.RefreshResponse
+	8,  // 28: mygardenworld.v1.AuthService.Logout:output_type -> mygardenworld.v1.LogoutResponse
+	10, // 29: mygardenworld.v1.AuthService.MobileLogin:output_type -> mygardenworld.v1.MobileLoginResponse
+	12, // 30: mygardenworld.v1.AuthService.MobileRefresh:output_type -> mygardenworld.v1.MobileRefreshResponse
+	14, // 31: mygardenworld.v1.AuthService.MobileLogout:output_type -> mygardenworld.v1.MobileLogoutResponse
+	17, // 32: mygardenworld.v1.AuthService.ListMobileSessions:output_type -> mygardenworld.v1.ListMobileSessionsResponse
+	19, // 33: mygardenworld.v1.AuthService.RevokeMobileSession:output_type -> mygardenworld.v1.RevokeMobileSessionResponse
+	21, // 34: mygardenworld.v1.AuthService.GetMe:output_type -> mygardenworld.v1.GetMeResponse
+	26, // [26:35] is the sub-list for method output_type
+	17, // [17:26] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_mygardenworld_v1_auth_proto_init() }
@@ -1071,7 +1370,7 @@ func file_mygardenworld_v1_auth_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_mygardenworld_v1_auth_proto_rawDesc), len(file_mygardenworld_v1_auth_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   15,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

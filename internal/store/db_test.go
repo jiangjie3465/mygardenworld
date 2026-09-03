@@ -98,6 +98,70 @@ func TestOpenMigratesVersionThreeThroughRedeemSchema(t *testing.T) {
 	}
 }
 
+func TestOpenMigratesVersionSixRefreshTokensToMobileSessions(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "garden.db")
+	previous, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL UNIQUE)`,
+		`CREATE TABLE refresh_tokens (
+		    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		    token_hash TEXT    NOT NULL UNIQUE,
+		    expires_at DATETIME NOT NULL,
+		    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX idx_refresh_user ON refresh_tokens(user_id)`,
+		`INSERT INTO users(id, username) VALUES (1, 'owner')`,
+		`INSERT INTO refresh_tokens(user_id, token_hash, expires_at) VALUES (1, 'legacy-hash', '2999-01-01 00:00:00')`,
+		`PRAGMA user_version = 6`,
+	} {
+		if _, err := previous.ExecContext(ctx, statement); err != nil {
+			_ = previous.Close()
+			t.Fatal(err)
+		}
+	}
+	if err := previous.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if version, err := databaseVersion(ctx, db.DB); err != nil || version != currentSchemaVersion {
+		t.Fatalf("schema version=%d err=%v, want %d", version, err, currentSchemaVersion)
+	}
+	for _, column := range []string{"client_type", "device_id", "device_name", "last_used_at", "created_at"} {
+		var name string
+		if err := db.QueryRowContext(ctx, `SELECT name FROM pragma_table_info('refresh_tokens') WHERE name = ?`, column).Scan(&name); err != nil {
+			t.Fatalf("refresh_tokens column %s after v7 migration: %v", column, err)
+		}
+	}
+	var clientType, deviceID string
+	if err := db.QueryRowContext(ctx, `SELECT client_type, device_id FROM refresh_tokens WHERE token_hash = 'legacy-hash'`).Scan(&clientType, &deviceID); err != nil {
+		t.Fatalf("legacy refresh token row: %v", err)
+	}
+	if clientType != "web" || deviceID != "" {
+		t.Fatalf("legacy token migrated as (%q,%q), want web token without device", clientType, deviceID)
+	}
+	var indexName string
+	if err := db.QueryRowContext(ctx, `SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_refresh_mobile_device'`).Scan(&indexName); err != nil {
+		t.Fatalf("mobile device index: %v", err)
+	}
+	if err := db.SaveRefreshTokenSession(ctx, 1, "mobile-token", time.Now().Add(time.Hour), "mobile", "device", "Emulator"); err != nil {
+		t.Fatalf("mobile session insert after migration: %v", err)
+	}
+	sessions, err := db.ListMobileSessions(ctx, 1)
+	if err != nil || len(sessions) != 1 || sessions[0].DeviceID != "device" {
+		t.Fatalf("mobile sessions after migration=%v err=%v", sessions, err)
+	}
+}
+
 func TestOpenMigratesVersionFiveRedeemSourcesWithoutLosingConfiguration(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "garden.db")

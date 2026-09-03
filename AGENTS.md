@@ -6,7 +6,8 @@ Personal local automation prototype. One `gardend` daemon owns game sessions, au
 
 - Use system Go 1.27.0 for every Go build, test, lint, generation, and release command.
 - The Web UI uses Node.js 22, pnpm 10, Next.js 16.3, React 19, and Tailwind CSS 4.
-- Generated files under `gen/` and `web/src/gen/` must not be edited by hand.
+- The Android app uses Kotlin, Jetpack Compose, AGP 9.1, Gradle 9.3 (wrapper), and the Android Studio bundled JDK 21; `minSdk = compileSdk = targetSdk = 36`.
+- Generated files under `gen/` and `web/src/gen/` must not be edited by hand. Android Protobuf Java Lite code is generated at Gradle build time from `proto/` and is never committed.
 
 ```sh
 make build            # bin/gardend
@@ -19,6 +20,9 @@ make frontend:test
 make frontend:lint
 make frontend:build
 make check
+make android:test     # cd android && ./gradlew test
+make android:lint     # cd android && ./gradlew lint
+make android:build    # cd android && ./gradlew assembleDebug
 ```
 
 ## Architecture
@@ -38,6 +42,8 @@ internal/
 proto/           current mygardenworld.v1 command, policy, and workspace schemas
 gen/             generated Go protobuf/connect code
 web/             embedded Next.js control panel
+android/         native Android client (single app module, see android.md)
+deploy/          reverse-proxy examples for the HTTPS edge
 ```
 
 `internal/auth`, `internal/updater`, `internal/captureanalysis`, `internal/cataloggen`, and `internal/webui` contain bounded supporting services; keep executable entrypoints thin and place reusable behavior in `internal/` packages.
@@ -55,7 +61,8 @@ web/             embedded Next.js control panel
 - Observed game behavior is the source of truth. Keep the namespace/RPC reference in `internal/babigame/doc.go` aligned with captures, implementation, and tests.
 - Each account resolves channel-scoped configuration through `ConfigForChannel`; there are no global channel defaults.
 - The runner owns the only game connection for an account. Workspace reads reuse its Session and in-memory state; they must not open a second game connection or fetch snapshots through SQLite.
-- Read-side account status, views, patches, log pagination, and Alipay progress use the authenticated binary Protobuf WebSocket at `/api/workspace`. Connect is for explicit commands such as account mutation, lifecycle actions, and policy saves.
+- Read-side account status, views, patches, log pagination, and Alipay progress use the authenticated binary Protobuf WebSocket at `/api/workspace`. Connect is for explicit commands such as account mutation, lifecycle actions, and policy saves. The WebSocket authenticates with the access token inside the first `OpenWorkspace` frame, not with a header.
+- Web authenticates with the `Login/Refresh/Logout` cookie flow. Mobile clients authenticate with `MobileLogin/MobileRefresh/MobileLogout`, receive refresh tokens in the response body, and are keyed by `client_type = 'mobile'` plus an app-generated `device_id`. Refresh tokens rotate on every refresh, are never logged, and cannot be exchanged across client types.
 - Workspace frames are strictly sequenced and versioned. `mygardenworld.v1` is the current protocol, not a compatibility alias.
 - State consumes namespace fragments, preserves raw observations for protocol gaps, and exposes typed domain views. Do not move automation decisions into API or Web presentation code.
 - Policy, planner, runner events, and Web filters share `basic`, `plant`, `order`, `water`, `union`, `race`, and `activity`; operational events use `account` and `system`.
@@ -66,7 +73,7 @@ web/             embedded Next.js control panel
 
 - This prototype does not carry runtime backward compatibility. Do not add deprecated fields, Protobuf `reserved` declarations, legacy decoders, old policy aliases, or parallel API versions unless explicitly requested.
 - Breaking schema work stays in `mygardenworld.v1`. Regenerate both Go and TypeScript outputs and update all callers atomically.
-- SQLite uses transactional, ordered `PRAGMA user_version` migrations and currently targets schema v6. A database schema change requires a one-way migration and tests; unversioned legacy databases remain rejected.
+- SQLite uses transactional, ordered `PRAGMA user_version` migrations and currently targets schema v7. A database schema change requires a one-way migration and tests; unversioned legacy databases remain rejected.
 - Policy is one strict protojson document in `account_policies.policy_json`. Public replace/import/export/copy operations handle the whole current policy.
 - Credentials and recoverable Sessions are encrypted with `garden.db.key`. Session restore is preferred; invalid server sessions fall back to the channel login flow.
 
@@ -78,10 +85,20 @@ web/             embedded Next.js control panel
 - Use ambient effects only for navigation, overview cards, dialogs, and empty states. Logs, tables, and dense settings must remain stable and easy to scan.
 - Do not add heavy animation dependencies for interactions that CSS can implement.
 
+## Android app
+
+- `android.md` is the execution plan and progress record for the Android client; when it conflicts with this file, the Android task wins and this file is updated.
+- The app only talks to a remotely deployed `gardend` over HTTPS through Connect binary Protobuf RPC and the `/api/workspace` WebSocket. It never runs the daemon, game connection, or automation locally.
+- Keep one `app` module with `core.network`, `core.auth`, `core.protocol`, `core.ui`, and `feature.*` packages. No WebView wrapping of the Web UI.
+- Refresh tokens live encrypted under Android Keystore; access tokens stay in memory. `device_id` is a random UUID created on first launch, never a hardware identifier.
+- `debug` builds may use cleartext HTTP and user-installed CAs for emulator development. `release` builds trust only system CAs and require HTTPS.
+- Mutating operations are disabled while offline. The Union screen must show an unconfirmed-membership state instead of relying on stale snapshots.
+
 ## Testing
 
 - Add table-driven tests beside state, automation, runner recovery, store migration, and API behavior changes.
 - Frontend changes must pass `pnpm --dir web lint`, `pnpm --dir web test`, and `pnpm --dir web build`.
+- Android changes must pass `./gradlew test lint assembleDebug` under `android/`, with JVM unit tests beside protocol, auth, and state-merge code.
 - Full E2E game tests run only with explicit credentials:
 
 ```sh

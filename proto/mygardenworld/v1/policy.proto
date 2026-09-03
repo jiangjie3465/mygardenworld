@@ -2,6 +2,9 @@ syntax = "proto3";
 
 package mygardenworld.v1;
 
+option java_multiple_files = true;
+option java_package = "com.mygardenworld.v1";
+
 // Controls whether the redeem worker may create a game session for an
 // otherwise offline account. An unspecified value is normalized to AUTO so
 // existing and newly created policies preserve the established behavior.

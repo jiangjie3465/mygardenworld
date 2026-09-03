@@ -79,3 +79,66 @@ func newTokenTestDB(t *testing.T) (*DB, int64) {
 	}
 	return db, user.ID
 }
+
+func TestListAndRevokeMobileSessions(t *testing.T) {
+	db, userID := newTokenTestDB(t)
+	ctx := context.Background()
+	other, err := db.CreateUser(ctx, "other", "other@example.test", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	future := time.Now().Add(time.Hour)
+	for _, s := range []struct {
+		user   int64
+		token  string
+		expiry time.Time
+		client string
+		device string
+	}{
+		{userID, "web-token", future, "web", ""},
+		{userID, "phone-token", future, "mobile", "phone"},
+		{userID, "tablet-token", future, "mobile", "tablet"},
+		{userID, "expired-token", time.Now().Add(-time.Minute), "mobile", "stale"},
+		{other.ID, "other-token", future, "mobile", "other-phone"},
+	} {
+		if err := db.SaveRefreshTokenSession(ctx, s.user, s.token, s.expiry, s.client, s.device, s.device+" name"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	sessions, err := db.ListMobileSessions(ctx, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	devices := make([]string, 0, len(sessions))
+	for _, s := range sessions {
+		devices = append(devices, s.DeviceID)
+		if s.CreatedAt.IsZero() || s.LastUsedAt.IsZero() || s.ExpiresAt.IsZero() {
+			t.Fatalf("session %+v has zero timestamps", s)
+		}
+	}
+	if len(devices) != 2 {
+		t.Fatalf("mobile sessions=%v, want phone and tablet only", devices)
+	}
+
+	if err := db.RevokeMobileSession(ctx, userID, sessions[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.RevokeMobileSession(ctx, userID, sessions[0].ID); !errors.Is(err, ErrMobileSessionNotFound) {
+		t.Fatalf("second revoke error=%v, want ErrMobileSessionNotFound", err)
+	}
+	otherSessions, err := db.ListMobileSessions(ctx, other.ID)
+	if err != nil || len(otherSessions) != 1 {
+		t.Fatalf("other sessions=%v err=%v", otherSessions, err)
+	}
+	if err := db.RevokeMobileSession(ctx, userID, otherSessions[0].ID); !errors.Is(err, ErrMobileSessionNotFound) {
+		t.Fatalf("cross-user revoke error=%v, want ErrMobileSessionNotFound", err)
+	}
+	if _, err := db.ValidateRefreshTokenForClient(ctx, "other-token", "mobile"); err != nil {
+		t.Fatalf("other user's token was revoked: %v", err)
+	}
+	remaining, err := db.ListMobileSessions(ctx, userID)
+	if err != nil || len(remaining) != 1 {
+		t.Fatalf("remaining sessions=%v err=%v, want 1", remaining, err)
+	}
+}
