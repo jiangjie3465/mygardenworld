@@ -55,7 +55,7 @@ fun LoginScreen(session: AuthSession, accounts: AccountsRepository, initialMessa
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Column(Modifier.widthIn(max = 480.dp).fillMaxWidth()) {
-            Text("小云朵", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            Text("小花园", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
             Text("连接独立部署的 gardend", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp, bottom = 20.dp))
             OutlinedTextField(
                 baseUrl, { baseUrl = it }, Modifier.fillMaxWidth(),

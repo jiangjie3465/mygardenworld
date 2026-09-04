@@ -89,7 +89,8 @@ deploy/          reverse-proxy examples for the HTTPS edge
 
 - `android.md` is the execution plan and progress record for the Android client; when it conflicts with this file, the Android task wins and this file is updated.
 - The app only talks to a remotely deployed `gardend` over HTTPS through Connect binary Protobuf RPC and the `/api/workspace` WebSocket. It never runs the daemon, game connection, or automation locally.
-- Keep one `app` module with `core.network`, `core.auth`, `core.protocol`, `core.ui`, and `feature.*` packages. No WebView wrapping of the Web UI.
+- Keep one `app` module with `core.network`, `core.auth`, `core.protocol`, `core.ui`, and `feature.*` packages. No WebView wrapping of the Web UI. The app is branded 小花园 and reuses the 小云朵 web palette.
+- Server and admin credentials live in `deploy/credentials.local.md`, which is gitignored; never commit secrets.
 - Refresh tokens live encrypted under Android Keystore; access tokens stay in memory. `device_id` is a random UUID created on first launch, never a hardware identifier.
 - `debug` builds may use cleartext HTTP and user-installed CAs for emulator development. `release` builds trust only system CAs, require HTTPS, and are shrunk by R8 with the rules in `android/app/proguard-rules.pro`; the `minifiedDebug` variant exists only to verify those rules against an http daemon. Release signing reads `android/keystore.properties`, which stays out of git.
 - Mutating operations are disabled while offline. The Union screen must show an unconfirmed-membership state instead of relying on stale snapshots.

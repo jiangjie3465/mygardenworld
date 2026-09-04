@@ -66,7 +66,7 @@ Android P4（已提交）：
 
 ### 与本文件的差距
 
-- [x] 生产部署：`https://dztel.dztddev.com` 由 Nginx 反代到 systemd 运行的 gardend（见 `deploy/nginx/`）；release APK 已在模拟器上通过该域名完成登录与 WebSocket 连接，证书链验证通过。
+- [x] 生产部署：`https://dztel.dztddev.com` 由 Nginx 反代到 systemd 运行的 gardend（见 `deploy/nginx/`），证书由 certbot 自动续期；凭据在 `deploy/credentials.local.md`（gitignore）；release APK 已在模拟器上通过该域名完成登录与 WebSocket 连接，证书链验证通过。
 - [ ] 真机 Redmi K100 Pro 验收（第 10 节真机清单）。
 - [ ] 日志页尚未实现 Web 的“竞赛同步日志折叠”。
 - [ ] 策略中的品质/花朵多选（SelectionMode 与 id 列表）尚未提供编辑器，只能编辑开关与数值。
@@ -157,7 +157,7 @@ android/
 - Android Keystore 保护 refresh token；access token 只保存在内存。
 - 服务地址可配置，接受 `https://host`、`https://host:port`；debug 额外接受 `http://`。
 - 不使用 WebView 包装 Web 页面。
-- 复用“小云朵”品牌、中文文案、深色主题和现有工作区概念。
+- App 名称为“小花园”，沿用小云朵的配色、中文文案、深色主题和工作区概念；自适应图标为珊瑚色五瓣花 + 天空云朵底（`res/drawable/ic_launcher_*.xml`）。
 
 ## 6. 网络和协议层
 

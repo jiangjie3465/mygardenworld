@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Coral five-petal flower with leaves, centered in the 66dp safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- stem -->
+    <path android:strokeColor="#2E9E6B" android:strokeWidth="3.2" android:strokeLineCap="round"
+        android:pathData="M54,58 C54,66 54,72 52,80" />
+    <!-- leaves -->
+    <path android:fillColor="#4CC38A"
+        android:pathData="M53,69 C46,60 36,60 33,64 C36,72 46,74 53,69 Z" />
+    <path android:fillColor="#3AB07A"
+        android:pathData="M53,74 C60,66 70,67 72,71 C69,78 59,79 53,74 Z" />
+    <!-- petals -->
+    <group android:pivotX="54" android:pivotY="46">
+        <path android:fillColor="#FF7A69" android:pathData="M54,46 C46,42 44,30 54,25 C64,30 62,42 54,46 Z" />
+        <path android:fillColor="#FF6F61" android:pathData="M54,46 C46,42 44,30 54,25 C64,30 62,42 54,46 Z" android:name="p2" />
+    </group>
+    <group android:rotation="72" android:pivotX="54" android:pivotY="46">
+        <path android:fillColor="#FF6F61" android:pathData="M54,46 C46,42 44,30 54,25 C64,30 62,42 54,46 Z" />
+    </group>
+    <group android:rotation="144" android:pivotX="54" android:pivotY="46">
+        <path android:fillColor="#FF8A75" android:pathData="M54,46 C46,42 44,30 54,25 C64,30 62,42 54,46 Z" />
+    </group>
+    <group android:rotation="216" android:pivotX="54" android:pivotY="46">
+        <path android:fillColor="#FF8A75" android:pathData="M54,46 C46,42 44,30 54,25 C64,30 62,42 54,46 Z" />
+    </group>
+    <group android:rotation="288" android:pivotX="54" android:pivotY="46">
+        <path android:fillColor="#FF6F61" android:pathData="M54,46 C46,42 44,30 54,25 C64,30 62,42 54,46 Z" />
+    </group>
+    <!-- center -->
+    <path android:fillColor="#FFD166" android:pathData="M54,46 m-6,0 a6,6 0 1 0 12,0 a6,6 0 1 0 -12,0" />
+    <path android:fillColor="#FFE8A3" android:pathData="M52,44 m-2,0 a2,2 0 1 0 4,0 a2,2 0 1 0 -4,0" />
+</vector>

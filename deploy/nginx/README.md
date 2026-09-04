@@ -17,3 +17,11 @@ Connect RPC, the embedded Web UI, and the `/api/workspace` WebSocket.
 The WebSocket location needs HTTP/1.1 upgrade headers and a long read timeout;
 account creation performs the game login inline, so the RPC location keeps a
 300s read timeout. `X-Forwarded-Proto` must be forwarded for secure cookies.
+
+## Certificates
+
+Install `certbot python3-certbot-nginx`, run
+`certbot certonly --nginx -d garden.example.com`, point `ssl_certificate` and
+`ssl_certificate_key` at `/etc/letsencrypt/live/<domain>/`, and add
+`/etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh` containing
+`systemctl reload nginx`. The `certbot.timer` unit renews automatically.

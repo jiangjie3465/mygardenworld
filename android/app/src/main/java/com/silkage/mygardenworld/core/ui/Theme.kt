@@ -12,7 +12,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
 
-/** 小云朵 palette mirrored from web/src/app/globals.css. */
+/** 小云朵 web palette mirrored from web/src/app/globals.css. */
 object CloudColors {
     val Coral = Color(0xFFFF6F61)
     val CoralDark = Color(0xFFFF8A75)
