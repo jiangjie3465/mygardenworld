@@ -191,7 +191,47 @@ android/
 - 设备会话查看和撤销（依赖第 3 节新增 RPC）。
 - 自动化异常通知作为后续扩展，不阻塞。
 
-## 9. 执行顺序
+## 9. 后续任务清单（2026-09-04 梳理）
+
+按优先级排列；完成一项就在这里勾掉。
+
+### 一、真机验收（最紧要）
+- [ ] Redmi K100 Pro 安装 release 包（`make android:release` 产物，或桌面上的 `xiaohuayuan-0.1.0-release.apk`），用 admin 登录 `https://dztel.dztddev.com`，添加游戏账号。
+- [ ] 逐项检查：Wi-Fi 与移动网络切换、长时间后台后恢复、支付宝扫码登录、深色主题、系统字体放大、旋转。
+- [ ] 观察一天的耗电和内存。
+- [ ] 服务器只有 1.6 GB 内存，多账号在线后观察 `gardend` 内存（systemd 上限 400 MB，见 `deploy/nginx/gardend.service.example`）。
+
+### 二、生产运维
+- [ ] 首次登录后在 Web 端修改 admin 密码，并同步更新 `deploy/credentials.local.md`。
+- [ ] 数据备份：`/opt/mygardenworld/data/garden.db` 与 `garden.db.key` 每日打包到本机或 OSS。
+- [ ] `make deploy` 脚本：构建内嵌 Web UI 的二进制、上传、重启（步骤见 `deploy/nginx/README.md`）。
+- [ ] 决定 jf 应用去留；不用则清理其容器和镜像。
+
+### 三、App 功能补齐
+- [ ] 策略里的品质/花朵多选（`SelectionMode`、id 列表、竞赛任务类型优先级）需要选择器，目前只能改开关和数值。
+- [ ] 日志页的竞赛同步日志折叠，与 Web 一致。
+- [ ] 弱网处理：断网提示与重连倒计时、请求超时的重试按钮。
+- [ ] 自动化异常通知（账号异常、会话失效时推送），后续扩展。
+- [ ] 自适应图标在深色主题下的效果微调。
+
+### 四、工程与发布
+- [ ] 版本号策略与 `versionCode` 递增规则。
+- [ ] 把 Android 构建加入 CI（`.github/workflows/release.yml` 目前只构建 gardend）。
+- [ ] 备份 `android/keystore/release.jks` 与 `android/keystore.properties`（丢失后无法升级安装）。
+- [ ] 视情况补 Compose UI 测试（登录、账号列表、策略保存）。
+
+### 五、遗留小项
+- `www.dztel.dztddev.com` 没有 DNS 记录，证书未包含；不需要可忽略。
+- 旧 DigiCert 证书留在 `/www/web/jf/nginx/ssl/`，已不再使用。
+
+### 快速上手
+- 凭据与服务器路径：`deploy/credentials.local.md`（gitignore）。
+- 本地联调：`make backend`（需 `JWT_SECRET`、`ADMIN_PASSWORD`）+ 模拟器 `mygardenworld_test`，App 地址填 `http://10.0.2.2:50051`（仅 debug 包）。
+- Android 命令：`make android:check`、`make android:release`；R8 规则验证用 `./gradlew assembleMinifiedDebug`。
+- 生产升级：按 `deploy/nginx/README.md` 步骤重建并替换 `/opt/mygardenworld/bin/gardend`，`systemctl restart gardend`。
+- 服务端日志：`journalctl -u gardend -f`；Nginx 日志：`/var/log/nginx/mygardenworld.*.log`。
+
+## 10. 执行顺序
 
 - [x] P0 后端补齐：设备会话 RPC、v6→v7 迁移测试、移动端认证补充测试、`AGENTS.md`、`Makefile` Android 入口。
 - [x] P1 工程基础：Gradle Wrapper、protobuf 生成、包结构、network_security_config、主题、单元测试骨架，`./gradlew test lint assembleDebug` 通过。
@@ -200,7 +240,7 @@ android/
 - [x] P4 完整功能：公会/活动/仓库/统计/兑换码/管理员/设备会话。
 - [ ] P5 验收：模拟器清单（已完成大部分：登录/刷新、断线重连、多账号、八个工作区、旋转、后台恢复、服务端 401；弱网与 HTTPS 证书未做）、真机清单、仓库 `make check`。
 
-## 10. 测试与验收
+## 11. 测试与验收
 
 模拟器（android-37.1，后续可补 API 36 镜像）：登录和 token 刷新；HTTPS 证书校验；WebSocket 连接、断线、重连和 resync；多账号切换；八个工作区基本渲染；旋转屏幕和进后台恢复；弱网、超时和服务端 401。
 
