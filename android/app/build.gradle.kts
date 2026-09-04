@@ -1,5 +1,6 @@
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
+import java.util.Properties
 import javax.inject.Inject
 import org.gradle.process.ExecOperations
 
@@ -122,9 +123,26 @@ val generateProto by tasks.registering(GenerateProtoTask::class) {
     outputDirectory.set(layout.buildDirectory.dir("generated/source/proto/java"))
 }
 
+// Release signing comes from android/keystore.properties (gitignored, see
+// keystore.properties.example). Without it the release build is unsigned.
+val keystoreProperties: Properties? = rootProject.file("keystore.properties").takeIf { it.isFile }?.let { file ->
+    Properties().apply { file.inputStream().use { load(it) } }
+}
+
 android {
     namespace = "com.silkage.mygardenworld"
     compileSdk = 36
+
+    signingConfigs {
+        keystoreProperties?.let { props ->
+            create("release") {
+                storeFile = rootProject.file(props.getProperty("storeFile"))
+                storePassword = props.getProperty("storePassword")
+                keyAlias = props.getProperty("keyAlias")
+                keyPassword = props.getProperty("keyPassword")
+            }
+        }
+    }
 
     defaultConfig {
         applicationId = "com.silkage.mygardenworld"
@@ -142,12 +160,27 @@ android {
             buildConfigField("boolean", "ALLOW_INSECURE_ENDPOINTS", "true")
         }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             buildConfigField("boolean", "ALLOW_INSECURE_ENDPOINTS", "false")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            signingConfig = signingConfigs.findByName("release")
+        }
+        // R8 with the debug network policy, so shrinking rules can be verified
+        // against a plain-http emulator daemon. Never ship this variant.
+        create("minifiedDebug") {
+            initWith(getByName("debug"))
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+            matchingFallbacks += "debug"
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
@@ -161,6 +194,10 @@ android {
     }
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+    }
+    sourceSets.getByName("minifiedDebug") {
+        // Reuse the debug network security config (cleartext + user CAs).
+        res.srcDirs("src/debug/res")
     }
     testOptions {
         unitTests.isIncludeAndroidResources = false

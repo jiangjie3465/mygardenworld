@@ -1,4 +1,4 @@
-.PHONY: android\:test android\:lint android\:build android\:check default help install build reset-data compact-db catalog-gen require-secrets backend server api test test-race vet lint proto-gen proto-gen-web proto-check web-deps frontend web web-dev web-build web-lint web-test dev check clean
+.PHONY: android\:test android\:lint android\:build android\:release android\:check default help install build reset-data compact-db catalog-gen require-secrets backend server api test test-race vet lint proto-gen proto-gen-web proto-check web-deps frontend web web-dev web-build web-lint web-test dev check clean
 
 BIN_DIR ?= bin
 DATA_DIR ?= data
@@ -65,6 +65,7 @@ help:
 	@echo "  android:test         Run Android JVM unit tests"
 	@echo "  android:lint         Run Android lint"
 	@echo "  android:build        Assemble Android debug APK"
+	@echo "  android:release      Assemble signed Android release APK (needs android/keystore.properties)"
 	@echo "  android:check        Run Android test, lint, and debug build"
 	@echo "  clean                Remove build artifacts"
 
@@ -168,6 +169,9 @@ android\:lint:
 
 android\:build:
 	cd android && ./gradlew --console=plain assembleDebug
+
+android\:release:
+	cd android && ./gradlew --console=plain assembleRelease lintRelease
 
 android\:check:
 	cd android && ./gradlew --console=plain test lint assembleDebug

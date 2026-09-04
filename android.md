@@ -69,7 +69,7 @@ Android P4（已提交）：
 - [ ] 真机 Redmi K100 Pro 与 HTTPS 证书链未验证（第 10 节真机清单）。
 - [ ] 日志页尚未实现 Web 的“竞赛同步日志折叠”。
 - [ ] 策略中的品质/花朵多选（SelectionMode 与 id 列表）尚未提供编辑器，只能编辑开关与数值。
-- [ ] release 签名配置与 R8 规则未配置。
+- [x] release 签名与 R8：`android/keystore.properties`（gitignored，见 `keystore.properties.example`）提供签名；release 开启 minify + 资源压缩，规则见 `app/proguard-rules.pro`；`minifiedDebug` 变体用于在 http 模拟器上验证 R8 规则。release APK 约 4 MB。
 - [ ] 自动化异常通知（后续扩展）。
 
 ## 3. 后端和协议
@@ -209,7 +209,11 @@ Android 工程命令：
 
 ```sh
 cd android && ./gradlew test lint assembleDebug
+make android:release          # 签名 release 包，需要 android/keystore.properties
+cd android && ./gradlew assembleMinifiedDebug   # R8 + debug 网络配置，用于模拟器验证混淆规则
 ```
+
+签名密钥：`android/keystore/release.jks` 与 `android/keystore.properties` 不入库，必须自行备份；丢失后无法对同一 applicationId 做升级安装。
 
 仓库整体仍需通过：
 
