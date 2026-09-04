@@ -135,3 +135,43 @@ class WorkspaceRepositoryTest {
         assertFalse(repo.state.value.online)
     }
 }
+
+class WorkspaceRepositoryRedeemTest {
+    private fun attempt(id: Long) = com.mygardenworld.v1.AccountRedeemAttempt.newBuilder().setId(id).setCode("C$id").build()
+    private fun page(filter: com.mygardenworld.v1.AccountRedeemAttemptFilter, replace: Boolean, vararg ids: Long, more: Boolean = false, next: Long = 0, accountId: Long = 7) =
+        com.mygardenworld.v1.AccountRedeemAttemptPage.newBuilder().setAccountId(accountId).setFilter(filter).setReplace(replace).addAllEntries(ids.map { attempt(it) })
+            .setHasMoreBefore(more).setNextBeforeId(next).setSummary(com.mygardenworld.v1.AccountRedeemAttemptSummary.newBuilder().setTotal(ids.size.toLong())).build()
+
+    @Test
+    fun redeemPagesReplaceAppendAndIgnoreStaleFilters() {
+        val all = com.mygardenworld.v1.AccountRedeemAttemptFilter.ACCOUNT_REDEEM_ATTEMPT_FILTER_ALL
+        val redeemed = com.mygardenworld.v1.AccountRedeemAttemptFilter.ACCOUNT_REDEEM_ATTEMPT_FILTER_REDEEMED
+        val repo = WorkspaceRepository()
+        repo.select(7)
+        repo.markRedeemLoading(all)
+        assertTrue(repo.state.value.redeem.loading)
+        repo.onEvent(WorkspaceEvent.RedeemAttempts(page(all, replace = true, 5, 4, more = true, next = 4)))
+        var feed = repo.state.value.redeem
+        assertEquals(listOf(5L, 4L), feed.entries.map { it.id })
+        assertTrue(feed.loaded && !feed.loading && feed.hasMore)
+
+        repo.markRedeemLoading(all)
+        repo.onEvent(WorkspaceEvent.RedeemAttempts(page(all, replace = false, 4, 3, 2)))
+        assertEquals("older page appends without duplicates", listOf(5L, 4L, 3L, 2L), repo.state.value.redeem.entries.map { it.id })
+
+        repo.onEvent(WorkspaceEvent.RedeemAttempts(page(redeemed, replace = true, 9)))
+        assertEquals("page for another filter is ignored", listOf(5L, 4L, 3L, 2L), repo.state.value.redeem.entries.map { it.id })
+        repo.onEvent(WorkspaceEvent.RedeemAttempts(page(all, replace = true, 8, accountId = 9)))
+        assertEquals("page for another account is ignored", listOf(5L, 4L, 3L, 2L), repo.state.value.redeem.entries.map { it.id })
+
+        repo.markRedeemLoading(redeemed)
+        feed = repo.state.value.redeem
+        assertEquals("switching filter resets the feed", 0, feed.entries.size)
+        assertEquals(redeemed, feed.filter)
+        repo.onEvent(WorkspaceEvent.RedeemAttempts(page(redeemed, replace = true, 9)))
+        assertEquals(listOf(9L), repo.state.value.redeem.entries.map { it.id })
+
+        repo.select(8)
+        assertEquals("selecting another account clears the feed", 0, repo.state.value.redeem.entries.size)
+    }
+}

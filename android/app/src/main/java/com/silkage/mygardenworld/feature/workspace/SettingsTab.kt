@@ -40,6 +40,13 @@ import com.silkage.mygardenworld.feature.workspace.PolicyLens.resident
 import com.silkage.mygardenworld.feature.workspace.PolicyLens.sign
 import com.silkage.mygardenworld.feature.workspace.PolicyLens.task
 import com.silkage.mygardenworld.feature.workspace.PolicyLens.team
+import com.silkage.mygardenworld.feature.workspace.PolicyLens.union
+import com.silkage.mygardenworld.feature.workspace.PolicyLens.unionBuild
+import com.silkage.mygardenworld.feature.workspace.PolicyLens.unionFlower
+import com.silkage.mygardenworld.feature.workspace.PolicyLens.unionLand
+import com.silkage.mygardenworld.feature.workspace.PolicyLens.unionRace
+import com.silkage.mygardenworld.feature.workspace.PolicyLens.cyclicNote
+import com.silkage.mygardenworld.feature.workspace.PolicyLens.cyclicStory
 
 @Composable
 fun SettingsTab(viewModel: WorkspaceViewModel, screen: WorkspaceScreenState, workspace: WorkspaceUiState) {
@@ -182,6 +189,73 @@ fun SettingsTab(viewModel: WorkspaceViewModel, screen: WorkspaceScreenState, wor
                 SwitchRow("0-8点关闭自动上架花艺", f.sellNightPauseEnabled, editable) { v -> viewModel.editPolicy { it.flowerArt { sellNightPauseEnabled = v } } }
                 SwitchRow("花艺经验", f.createRewardEnabled, editable) { v -> viewModel.editPolicy { it.flowerArt { createRewardEnabled = v } } }
                 SwitchRow("图鉴奖励", f.collectRewardEnabled, editable) { v -> viewModel.editPolicy { it.flowerArt { collectRewardEnabled = v } } }
+            }
+        }
+        val inUnion = workspace.state?.takeIf { it.hasUnion() }?.union?.let { it.membershipObserved && it.inUnion } == true
+        if (inUnion) {
+            item {
+                val l = policy.union.land
+                SectionCard("公会土地", defaultOpen = false) {
+                    SwitchRow("自动收获", l.harvestEnabled, editable) { v -> viewModel.editPolicy { it.unionLand { harvestEnabled = v } } }
+                    SwitchRow("自动种植", l.autoPlantEnabled, editable) { v -> viewModel.editPolicy { it.unionLand { autoPlantEnabled = v } } }
+                    NumberRow("成熟时长(分钟)", l.minMaturityMinutes.toLong(), editable, "0 表示默认 20") { v -> viewModel.editPolicy { it.unionLand { minMaturityMinutes = v.toInt() } } }
+                    NumberRow("改种冷却(分钟)", l.minReplantMinutes.toLong(), editable, "0 表示默认 60") { v -> viewModel.editPolicy { it.unionLand { minReplantMinutes = v.toInt() } } }
+                    NumberRow("最高花朵等级", l.maxFlowerLevel.toLong(), editable) { v -> viewModel.editPolicy { it.unionLand { maxFlowerLevel = v.toInt() } } }
+                }
+            }
+            item {
+                val b = policy.union.build
+                SectionCard("公会建设", defaultOpen = false) {
+                    SwitchRow("免费建设", b.freeEnabled, editable) { v -> viewModel.editPolicy { it.unionBuild { freeEnabled = v } } }
+                    SwitchRow("金币建设", b.goldEnabled, editable) { v -> viewModel.editPolicy { it.unionBuild { goldEnabled = v } } }
+                    NumberRow("金币上限", b.maxSpendGold, editable) { v -> viewModel.editPolicy { it.unionBuild { maxSpendGold = v } } }
+                    SwitchRow("元宝建设", b.diamondEnabled, editable, "元宝消耗需显式开启") { v -> viewModel.editPolicy { it.unionBuild { diamondEnabled = v } } }
+                    NumberRow("元宝上限", b.maxSpendDiamond, editable) { v -> viewModel.editPolicy { it.unionBuild { maxSpendDiamond = v } } }
+                }
+            }
+            item {
+                val f = policy.union.flower
+                SectionCard("公会分享与摸花", defaultOpen = false) {
+                    SwitchRow("自动分享", f.shareEnabled, editable) { v -> viewModel.editPolicy { it.unionFlower { shareEnabled = v } } }
+                    SwitchRow("自动摸花", f.takeEnabled, editable) { v -> viewModel.editPolicy { it.unionFlower { takeEnabled = v } } }
+                    SwitchRow("公会红包", policy.union.redPacketEnabled, editable) { v -> viewModel.editPolicy { it.union { redPacketEnabled = v } } }
+                    SwitchRow("能量森林", policy.union.forestEnabled, editable) { v -> viewModel.editPolicy { it.union { forestEnabled = v } } }
+                }
+            }
+            item {
+                val r = policy.union.race
+                SectionCard("公会竞赛", defaultOpen = false) {
+                    SwitchRow("任务池同步", r.enabled, editable) { v -> viewModel.editPolicy { it.unionRace { enabled = v } } }
+                    SwitchRow("显示个人得分排名", r.showPersonalScoreRank, editable) { v -> viewModel.editPolicy { it.unionRace { showPersonalScoreRank = v } } }
+                    SwitchRow("自动完成", r.autoEnableModules, editable) { v -> viewModel.editPolicy { it.unionRace { autoEnableModules = v } } }
+                    SwitchRow("自动放弃", r.autoGiveUpTask, editable) { v -> viewModel.editPolicy { it.unionRace { autoGiveUpTask = v } } }
+                    SwitchRow("自动启停", r.autoStopOnQuotaDone, editable) { v -> viewModel.editPolicy { it.unionRace { autoStopOnQuotaDone = v } } }
+                    SwitchRow("避免接取已有进度任务", if (r.hasAvoidProgressedTasks()) r.avoidProgressedTasks else true, editable) { v -> viewModel.editPolicy { it.unionRace { avoidProgressedTasks = v } } }
+                    SwitchRow("种植任务使用加速卡", r.useSpeedupTicketInTask, editable) { v -> viewModel.editPolicy { it.unionRace { useSpeedupTicketInTask = v } } }
+                    NumberRow("最低任务分", r.minTaskScore.toLong(), editable, "0 表示不过滤") { v -> viewModel.editPolicy { it.unionRace { minTaskScore = v.toInt() } } }
+                    SwitchRow("只接已升级任务", r.onlyUpgradeTask, editable) { v -> viewModel.editPolicy { it.unionRace { onlyUpgradeTask = v } } }
+                    SwitchRow("排除他人升级任务", r.excludeOthersUpgradeTask, editable) { v -> viewModel.editPolicy { it.unionRace { excludeOthersUpgradeTask = v } } }
+                    SwitchRow("自动升级任务", r.upgradeTask, editable) { v -> viewModel.editPolicy { it.unionRace { upgradeTask = v } } }
+                    SwitchRow("删除低分任务", r.deleteLowScoreTask, editable) { v -> viewModel.editPolicy { it.unionRace { deleteLowScoreTask = v } } }
+                    NumberRow("删除分数上限", r.deleteTaskMaxScore.toLong(), editable) { v -> viewModel.editPolicy { it.unionRace { deleteTaskMaxScore = v.toInt() } } }
+                    NumberRow("元宝上限", r.maxSpendDiamond, editable) { v -> viewModel.editPolicy { it.unionRace { maxSpendDiamond = v } } }
+                }
+            }
+        }
+        item {
+            val n = policy.activity.cyclicNote
+            val st = policy.activity.cyclicStory
+            SectionCard("活动", defaultOpen = false) {
+                Text("花笺集芳", style = MaterialTheme.typography.labelMedium)
+                SwitchRow("启用", n.enabled, editable) { v -> viewModel.editPolicy { it.cyclicNote { enabled = v } } }
+                SwitchRow("自动领取任务奖励", n.autoClaimTaskRewards, editable) { v -> viewModel.editPolicy { it.cyclicNote { autoClaimTaskRewards = v } } }
+                SwitchRow("自动领取积分奖励", n.autoClaimProgressBoxes, editable) { v -> viewModel.editPolicy { it.cyclicNote { autoClaimProgressBoxes = v } } }
+                SwitchRow("驱动已启用模块完成任务", n.satisfyTasks, editable) { v -> viewModel.editPolicy { it.cyclicNote { satisfyTasks = v } } }
+                Text("莳花纪闻", style = MaterialTheme.typography.labelMedium)
+                SwitchRow("启用", st.enabled, editable) { v -> viewModel.editPolicy { it.cyclicStory { enabled = v } } }
+                SwitchRow("自动领取订单奖励", st.autoClaimOrderRewards, editable) { v -> viewModel.editPolicy { it.cyclicStory { autoClaimOrderRewards = v } } }
+                SwitchRow("自动领取积分奖励", st.autoClaimProgressBoxes, editable) { v -> viewModel.editPolicy { it.cyclicStory { autoClaimProgressBoxes = v } } }
+                NumberRow("分数上限（0=不限制）", st.maxScore, editable) { v -> viewModel.editPolicy { it.cyclicStory { maxScore = v } } }
             }
         }
         item {

@@ -65,6 +65,37 @@ func TestRotateRefreshTokenRollsBackOnReplacementFailure(t *testing.T) {
 	}
 }
 
+func TestMobileLoginReplacesSessionForSameDevice(t *testing.T) {
+	db, userID := newTokenTestDB(t)
+	ctx := context.Background()
+	other, err := db.CreateUser(ctx, "other", "other@example.test", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	future := time.Now().Add(time.Hour)
+	for _, s := range []struct {
+		user  int64
+		token string
+	}{{userID, "first"}, {other.ID, "other-device-same-id"}, {userID, "second"}} {
+		if err := db.SaveRefreshTokenSession(ctx, s.user, s.token, future, "mobile", "device-a", "Phone"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.ValidateRefreshTokenForClient(ctx, "first", "mobile"); !errors.Is(err, ErrTokenInvalid) {
+		t.Fatalf("earlier session for the same device survived: %v", err)
+	}
+	if _, err := db.ValidateRefreshTokenForClient(ctx, "second", "mobile"); err != nil {
+		t.Fatalf("latest session invalid: %v", err)
+	}
+	if _, err := db.ValidateRefreshTokenForClient(ctx, "other-device-same-id", "mobile"); err != nil {
+		t.Fatalf("another user's session with the same device id was revoked: %v", err)
+	}
+	sessions, err := db.ListMobileSessions(ctx, userID)
+	if err != nil || len(sessions) != 1 || sessions[0].DeviceID != "device-a" {
+		t.Fatalf("sessions=%v err=%v, want exactly one device-a session", sessions, err)
+	}
+}
+
 func newTokenTestDB(t *testing.T) (*DB, int64) {
 	t.Helper()
 	ctx := context.Background()

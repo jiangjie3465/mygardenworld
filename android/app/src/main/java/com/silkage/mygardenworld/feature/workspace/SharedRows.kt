@@ -18,19 +18,7 @@ import com.silkage.mygardenworld.core.ui.Badge
 import com.silkage.mygardenworld.core.ui.BadgeTone
 import com.silkage.mygardenworld.core.ui.Format
 
-fun pendingTaskCategoryLabel(category: String): String = when (category) {
-    "main_task" -> "主线任务"
-    "daily_task" -> "日常任务"
-    "weekly_task" -> "周常任务"
-    "story" -> "主线剧情"
-    "achievement" -> "成就任务"
-    "resident_order" -> "居民订单"
-    "customer_order" -> "顾客订单"
-    "palace_order" -> "宫廷订单"
-    "map_event" -> "地图随机事件"
-    "pearl_hire" -> "珍珠雇佣"
-    else -> category
-}
+fun pendingTaskCategoryLabel(category: String): String = if (category == "activity") "活动" else Format.categoryLabel(category)
 
 @Composable
 fun PendingTaskRow(task: PendingTaskView) {

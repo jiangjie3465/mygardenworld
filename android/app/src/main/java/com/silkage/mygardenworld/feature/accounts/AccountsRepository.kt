@@ -20,6 +20,8 @@ import com.mygardenworld.v1.ListAccountsRequest
 import com.mygardenworld.v1.ListAccountsResponse
 import com.mygardenworld.v1.StartAlipayLoginRequest
 import com.mygardenworld.v1.StartAlipayLoginResponse
+import com.mygardenworld.v1.TakeUnionRaceTaskRequest
+import com.mygardenworld.v1.TakeUnionRaceTaskResponse
 import com.mygardenworld.v1.User
 import com.silkage.mygardenworld.core.network.ConnectClient
 
@@ -52,6 +54,10 @@ class AccountsRepository(private val rpc: ConnectClient) {
 
     suspend fun enableAutomation(id: Long) {
         rpc.call("AutomationService", "EnableAutomation", EnableAutomationRequest.newBuilder().setAccountId(id).build(), EnableAutomationResponse.parser())
+    }
+
+    suspend fun takeUnionRaceTask(accountId: Long, taskMsId: Long) {
+        rpc.call("AutomationService", "TakeUnionRaceTask", TakeUnionRaceTaskRequest.newBuilder().setAccountId(accountId).setTaskMsId(taskMsId).build(), TakeUnionRaceTaskResponse.parser())
     }
 
     suspend fun disableAutomation(id: Long) {

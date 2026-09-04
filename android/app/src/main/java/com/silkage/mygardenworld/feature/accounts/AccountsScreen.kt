@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.ConfirmationNumber
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -60,6 +61,7 @@ fun AccountsScreen(
     serverLabel: String,
     onOpenAccount: (Long) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenRedeem: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val workspace by viewModel.workspace.collectAsStateWithLifecycle()
@@ -88,6 +90,7 @@ fun AccountsScreen(
                     ConnectionDot(workspace.connection)
                     IconButton(onClick = viewModel::refresh, enabled = !state.loading) { Icon(Icons.Filled.Refresh, contentDescription = "刷新") }
                     IconButton(onClick = { showAdd = true }, enabled = !quotaReached(state)) { Icon(Icons.Filled.Add, contentDescription = "新增账号") }
+                    IconButton(onClick = onOpenRedeem) { Icon(Icons.Filled.ConfirmationNumber, contentDescription = "兑换码中心") }
                     IconButton(onClick = onOpenSettings) { Icon(Icons.Filled.Settings, contentDescription = "设置") }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),

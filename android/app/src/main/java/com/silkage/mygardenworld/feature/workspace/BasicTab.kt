@@ -23,6 +23,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.runtime.LaunchedEffect
+import com.mygardenworld.v1.AccountRedeemAttemptFilter
 import com.mygardenworld.v1.ExecutionLane
 import com.mygardenworld.v1.PlanStatus
 import com.mygardenworld.v1.PlannedOperation
@@ -40,7 +44,7 @@ private const val SPEED_UP_TICKET_ITEM_ID = 1001
 private const val FLORAL_COIN_ITEM_ID = 1002
 
 @Composable
-fun BasicTab(workspace: WorkspaceUiState, catalog: Catalog) {
+fun BasicTab(workspace: WorkspaceUiState, catalog: Catalog, onRedeemFilter: (AccountRedeemAttemptFilter) -> Unit, onRedeemMore: () -> Unit) {
     val state = workspace.state
     val basic = state?.takeIf { it.hasBasic() }?.basic
     val status = workspace.selectedStatus
@@ -130,6 +134,44 @@ fun BasicTab(workspace: WorkspaceUiState, catalog: Catalog) {
             val tasks = basic?.pendingTasksList.orEmpty()
             SectionCard("任务", defaultOpen = false, actions = { Badge(tasks.size.toString(), BadgeTone.SECONDARY) }) {
                 if (tasks.isEmpty()) EmptyState("暂无任务待监控") else tasks.forEach { PendingTaskRow(it) }
+            }
+        }
+        item {
+            val feed = workspace.redeem
+            LaunchedEffect(workspace.selectedAccountId, workspace.online) {
+                if (workspace.online && !feed.loaded && !feed.loading) onRedeemFilter(feed.filter)
+            }
+            val summary = feed.summary
+            val redeemed = (summary?.success ?: 0) + (summary?.alreadyRedeemed ?: 0)
+            val unavailable = (summary?.expired ?: 0) + (summary?.invalid ?: 0)
+            val attention = (summary?.pending ?: 0) + (summary?.running ?: 0) + (summary?.retryable ?: 0) + (summary?.unknown ?: 0)
+            SectionCard("兑换记录", defaultOpen = false, actions = {
+                Badge("已兑换 $redeemed", BadgeTone.SECONDARY)
+                Badge("共 ${summary?.total ?: "-"}")
+            }) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(
+                        AccountRedeemAttemptFilter.ACCOUNT_REDEEM_ATTEMPT_FILTER_ALL to "全部 ${summary?.total ?: 0}",
+                        AccountRedeemAttemptFilter.ACCOUNT_REDEEM_ATTEMPT_FILTER_REDEEMED to "已兑换 $redeemed",
+                        AccountRedeemAttemptFilter.ACCOUNT_REDEEM_ATTEMPT_FILTER_UNAVAILABLE to "未兑换 $unavailable",
+                        AccountRedeemAttemptFilter.ACCOUNT_REDEEM_ATTEMPT_FILTER_ATTENTION to "待确认 $attention",
+                    ).forEach { (filter, label) -> FilterChip(selected = feed.filter == filter, onClick = { onRedeemFilter(filter) }, label = { Text(label, maxLines = 1) }) }
+                }
+                if (feed.loading && feed.entries.isEmpty()) Text("正在加载兑换记录", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                else if (feed.entries.isEmpty()) EmptyState(if (feed.filter == AccountRedeemAttemptFilter.ACCOUNT_REDEEM_ATTEMPT_FILTER_ALL) "暂无兑换记录" else "该分类暂无记录", "新兑换码进入账号处理队列后会自动记录结果")
+                feed.entries.forEach { entry ->
+                    val (label, tone) = Format.redeemAttemptStatus(entry.status)
+                    Column(Modifier.fillMaxWidth()) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(entry.code, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                            Badge(Format.channel(entry.channel))
+                            Badge(label, tone)
+                        }
+                        val ts = if (entry.hasAttemptedAt()) entry.attemptedAt else entry.updatedAt
+                        Text(listOf(Format.timestamp(ts).let { if (it == "-") "尚未尝试" else it }, if (entry.attemptCount > 0) "尝试 ${entry.attemptCount} 次" else "", if (entry.hasExpiresAt()) "有效至 ${Format.timestamp(entry.expiresAt)}" else "", entry.message).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                if (feed.hasMore) OutlinedButton(onClick = onRedeemMore, enabled = !feed.loading && workspace.online, modifier = Modifier.fillMaxWidth()) { Text(if (feed.loading) "加载中" else "加载更早记录") }
             }
         }
     }

@@ -4,7 +4,12 @@ import com.google.protobuf.Timestamp
 import com.mygardenworld.v1.Account
 import com.mygardenworld.v1.AccountHealth
 import com.mygardenworld.v1.AccountStatus
+import com.mygardenworld.v1.AccountRedeemAttemptStatus
 import com.mygardenworld.v1.AlipayLoginStatus
+import com.mygardenworld.v1.FmlLandView
+import com.mygardenworld.v1.FmlRaceTask
+import com.mygardenworld.v1.RedeemCode
+import com.mygardenworld.v1.RedeemValidation
 import com.mygardenworld.v1.Channel
 import com.mygardenworld.v1.Event
 import com.mygardenworld.v1.LandView
@@ -255,6 +260,126 @@ object Format {
         val next = clock(land.nextTimeMs)
         if (next != "-") return "成熟 $next"
         return if (land.flowerId > 0) "成长中" else "待同步"
+    }
+
+    fun categoryLabel(category: String): String = when (category) {
+        "basic" -> "基础"
+        "water" -> "水滴"
+        "plant" -> "种植"
+        "order" -> "订单"
+        "union" -> "公会"
+        "race" -> "竞赛"
+        "activity" -> "活动"
+        "account" -> "账号"
+        "system" -> "系统"
+        "" -> "-"
+        else -> category
+    }
+
+    fun remainingMinutes(ms: Long): String {
+        val totalMinutes = ((ms + 59_999) / 60_000).coerceAtLeast(1)
+        val days = totalMinutes / (24 * 60)
+        val hours = (totalMinutes % (24 * 60)) / 60
+        val minutes = totalMinutes % 60
+        return when {
+            days > 0 -> "${days}天" + if (hours > 0) "${hours}小时" else ""
+            hours > 0 -> "${hours}小时" + if (minutes > 0) "${minutes}分" else ""
+            else -> "${minutes}分钟"
+        }
+    }
+
+    fun activityPhase(phase: Int): String = when (phase) {
+        1 -> "预告期"
+        2 -> "进行中"
+        3 -> "领奖期"
+        4 -> "已结束"
+        else -> "未开始"
+    }
+
+    fun activityPhaseDetail(phase: Int, phaseEndMs: Long, endMs: Long): String {
+        if (phase == 4) return if (endMs > 0) "结束于 ${clock(endMs)}" else "活动已结束"
+        if (phaseEndMs <= 0) return "阶段时间尚未同步"
+        val remaining = phaseEndMs - System.currentTimeMillis()
+        if (remaining <= 0) return "等待服务端阶段更新"
+        val prefix = when (phase) { 1 -> "距开始"; 3 -> "领奖剩余"; else -> "剩余" }
+        return "$prefix ${remainingMinutes(remaining)}"
+    }
+
+    fun fmlLandTiming(land: FmlLandView): String {
+        when (land.recommendation) {
+            "harvest" -> return if (land.pendingHarvest > 0) "可收获 ${land.pendingHarvest} 朵" else "可收获"
+            "plant" -> return "待种植"
+        }
+        val next = clock(land.nextMatureMs)
+        if (next != "-") return "下朵 $next"
+        if (land.flowerId > 0 && land.stockCap > 0 && land.pendingHarvest >= land.stockCap) return "库存已满"
+        return if (land.flowerId > 0) "成长中" else "空地"
+    }
+
+    fun raceTaskReady(task: FmlRaceTask, nowMs: Long): Boolean {
+        val reason = task.takeSkipReason.trim()
+        if (reason.isEmpty()) return true
+        return reason.startsWith("冷却中") && task.appearTimeMs <= nowMs
+    }
+
+    fun raceTaskAvailability(task: FmlRaceTask, nowMs: Long): String {
+        val reason = task.takeSkipReason.trim()
+        if (raceTaskReady(task, nowMs)) return "现在可抢"
+        if (reason.startsWith("冷却中")) {
+            val remain = ((task.appearTimeMs - nowMs + 999) / 1000).coerceAtLeast(1)
+            if (remain < 60) return "$remain 秒后可抢"
+            val minutes = remain / 60
+            val seconds = remain % 60
+            return "$minutes 分" + (if (seconds > 0) " $seconds 秒" else "") + "后可抢"
+        }
+        return if (reason.isNotEmpty()) "不可抢：$reason" else "状态待刷新"
+    }
+
+    fun raceTaskProgress(task: FmlRaceTask): String? = when {
+        task.targetCnt > 0 -> "进度 ${task.finishCnt}/${task.targetCnt}"
+        task.finishCnt > 0 -> "已有进度 ${task.finishCnt}"
+        else -> null
+    }
+
+    fun redeemAttemptStatus(status: AccountRedeemAttemptStatus): Pair<String, BadgeTone> = when (status) {
+        AccountRedeemAttemptStatus.ACCOUNT_REDEEM_ATTEMPT_STATUS_SUCCESS -> "兑换成功" to BadgeTone.PRIMARY
+        AccountRedeemAttemptStatus.ACCOUNT_REDEEM_ATTEMPT_STATUS_ALREADY_REDEEMED -> "此前已兑换" to BadgeTone.SECONDARY
+        AccountRedeemAttemptStatus.ACCOUNT_REDEEM_ATTEMPT_STATUS_EXPIRED -> "已过期" to BadgeTone.NEUTRAL
+        AccountRedeemAttemptStatus.ACCOUNT_REDEEM_ATTEMPT_STATUS_INVALID -> "无效码" to BadgeTone.DANGER
+        AccountRedeemAttemptStatus.ACCOUNT_REDEEM_ATTEMPT_STATUS_RUNNING -> "兑换中" to BadgeTone.SECONDARY
+        AccountRedeemAttemptStatus.ACCOUNT_REDEEM_ATTEMPT_STATUS_RETRYABLE -> "等待重试" to BadgeTone.NEUTRAL
+        AccountRedeemAttemptStatus.ACCOUNT_REDEEM_ATTEMPT_STATUS_UNKNOWN -> "结果未知" to BadgeTone.NEUTRAL
+        else -> "等待处理" to BadgeTone.NEUTRAL
+    }
+
+    fun redeemExpired(code: RedeemCode): Boolean =
+        code.validation == RedeemValidation.REDEEM_VALIDATION_EXPIRED ||
+            (code.hasExpiresAt() && code.expiresAt.seconds * 1000 <= System.currentTimeMillis())
+
+    fun redeemValidation(code: RedeemCode): Pair<String, BadgeTone> {
+        val expired = redeemExpired(code)
+        if (expired) return "已过期" to BadgeTone.DANGER
+        return when (code.validation) {
+            RedeemValidation.REDEEM_VALIDATION_SUCCESS -> "本节点已验证" to BadgeTone.SECONDARY
+            RedeemValidation.REDEEM_VALIDATION_ALREADY_REDEEMED -> "已被兑换" to BadgeTone.SECONDARY
+            RedeemValidation.REDEEM_VALIDATION_INVALID -> "错误码" to BadgeTone.DANGER
+            RedeemValidation.REDEEM_VALIDATION_RETRYABLE -> "等待重试" to BadgeTone.NEUTRAL
+            RedeemValidation.REDEEM_VALIDATION_UNKNOWN -> "等待确认" to BadgeTone.NEUTRAL
+            else -> (if (code.hasCommunityVerifiedAt()) "社区已验证" else "待验证") to BadgeTone.NEUTRAL
+        }
+    }
+
+    fun redeemExpiry(code: RedeemCode): String {
+        if (redeemExpired(code)) return if (code.validation == RedeemValidation.REDEEM_VALIDATION_EXPIRED) "游戏已判定过期" else "已过期"
+        if (code.permanent) return "未知期限"
+        if (!code.hasExpiresAt()) return "待确认"
+        val ms = code.expiresAt.seconds * 1000 - System.currentTimeMillis()
+        if (ms <= 0) return "已过期"
+        val minutes = (ms + 59_999) / 60_000
+        if (minutes < 60) return "${minutes}分钟后过期"
+        val hours = (minutes + 59) / 60
+        if (hours < 48) return "${hours}小时后过期"
+        return "${(hours + 23) / 24}天后过期"
     }
 
     fun eventTitle(event: Event): String {

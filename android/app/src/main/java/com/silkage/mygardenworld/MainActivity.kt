@@ -26,6 +26,12 @@ import com.silkage.mygardenworld.core.ui.MyGardenWorldTheme
 import com.silkage.mygardenworld.feature.accounts.AccountsScreen
 import com.silkage.mygardenworld.feature.accounts.AccountsViewModel
 import com.silkage.mygardenworld.feature.auth.LoginScreen
+import com.silkage.mygardenworld.feature.admin.AdminScreen
+import com.silkage.mygardenworld.feature.admin.AdminViewModel
+import com.silkage.mygardenworld.feature.redeem.RedeemScreen
+import com.silkage.mygardenworld.feature.redeem.RedeemViewModel
+import com.silkage.mygardenworld.feature.settings.SessionsScreen
+import com.silkage.mygardenworld.feature.settings.SessionsViewModel
 import com.silkage.mygardenworld.feature.settings.SettingsScreen
 import com.silkage.mygardenworld.feature.workspace.WorkspaceScreen
 import com.silkage.mygardenworld.feature.workspace.WorkspaceViewModel
@@ -63,14 +69,29 @@ private fun SignedInNav(container: AppContainer) {
     NavHost(nav, startDestination = "accounts") {
         composable("accounts") {
             val vm: AccountsViewModel = viewModel(factory = factory { AccountsViewModel(container) })
-            AccountsScreen(vm, serverLabel, onOpenAccount = { nav.navigate("workspace/$it") }, onOpenSettings = { nav.navigate("settings") })
+            AccountsScreen(vm, serverLabel, onOpenAccount = { nav.navigate("workspace/$it") }, onOpenSettings = { nav.navigate("settings") }, onOpenRedeem = { nav.navigate("redeem") })
         }
         composable("workspace/{accountId}", arguments = listOf(navArgument("accountId") { type = NavType.LongType })) { entry ->
             val accountId = entry.arguments?.getLong("accountId") ?: 0L
             val vm: WorkspaceViewModel = viewModel(key = "workspace-$accountId", factory = factory { WorkspaceViewModel(container, accountId) })
             WorkspaceScreen(vm, onBack = { nav.popBackStack() })
         }
-        composable("settings") { SettingsScreen(container, onBack = { nav.popBackStack() }) }
+        composable("settings") { SettingsScreen(container, onBack = { nav.popBackStack() }, onOpenSessions = { nav.navigate("sessions") }, onOpenAdmin = { nav.navigate("admin") }, onOpenRedeem = { nav.navigate("redeem") }) }
+        composable("redeem") {
+            val vm: RedeemViewModel = viewModel(factory = factory { RedeemViewModel(container) })
+            val workspace by container.workspace.state.collectAsStateWithLifecycle()
+            RedeemScreen(vm, workspace.online, onBack = { nav.popBackStack() })
+        }
+        composable("sessions") {
+            val vm: SessionsViewModel = viewModel(factory = factory { SessionsViewModel(container) })
+            val workspace by container.workspace.state.collectAsStateWithLifecycle()
+            SessionsScreen(vm, workspace.online, onBack = { nav.popBackStack() })
+        }
+        composable("admin") {
+            val vm: AdminViewModel = viewModel(factory = factory { AdminViewModel(container) })
+            val workspace by container.workspace.state.collectAsStateWithLifecycle()
+            AdminScreen(vm, workspace.online, onBack = { nav.popBackStack() })
+        }
     }
 }
 

@@ -3,6 +3,8 @@ package com.silkage.mygardenworld.feature.workspace
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mygardenworld.v1.Account
+import com.mygardenworld.v1.AccountRedeemAttemptFilter
+import com.mygardenworld.v1.FmlRaceTask
 import com.mygardenworld.v1.Policy
 import com.silkage.mygardenworld.AppContainer
 import com.silkage.mygardenworld.core.network.ConnectException
@@ -18,6 +20,8 @@ data class WorkspaceScreenState(
     val policyLoading: Boolean = false,
     val savingPolicy: Boolean = false,
     val busyAction: String = "",
+    val busyRaceTaskId: Long = 0,
+    val raceMessage: String = "",
     val message: String = "",
     val error: String = "",
     val deleted: Boolean = false,
@@ -97,6 +101,33 @@ class WorkspaceViewModel(private val container: AppContainer, val accountId: Lon
     }
 
     fun resync() = container.socket.resync()
+
+    fun loadRedeemAttempts(filter: AccountRedeemAttemptFilter, more: Boolean = false) {
+        val feed = container.workspace.state.value.redeem
+        if (feed.loading) return
+        if (more && !feed.hasMore) return
+        container.workspace.markRedeemLoading(filter)
+        container.socket.loadRedeemAttempts(accountId, beforeId = if (more && filter == feed.filter) feed.nextBeforeId else 0, filter = filter)
+    }
+
+    fun takeRaceTask(task: FmlRaceTask) {
+        if (_state.value.busyRaceTaskId != 0L) return
+        if (!container.workspace.state.value.online) {
+            _state.update { it.copy(raceMessage = "当前离线，无法接取任务") }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(busyRaceTaskId = task.msId, raceMessage = "") }
+            try {
+                container.accounts.takeUnionRaceTask(accountId, task.msId)
+                _state.update { it.copy(raceMessage = "接取请求已成功，正在等待任务状态同步。") }
+            } catch (e: ConnectException) {
+                _state.update { it.copy(raceMessage = e.userMessage) }
+            } finally {
+                _state.update { it.copy(busyRaceTaskId = 0) }
+            }
+        }
+    }
 
     fun dismissMessages() = _state.update { it.copy(error = "", message = "") }
 

@@ -1,5 +1,9 @@
 package com.silkage.mygardenworld.core.protocol
 
+import com.mygardenworld.v1.AccountRedeemAttempt
+import com.mygardenworld.v1.AccountRedeemAttemptFilter
+import com.mygardenworld.v1.AccountRedeemAttemptPage
+import com.mygardenworld.v1.AccountRedeemAttemptSummary
 import com.mygardenworld.v1.AccountStatus
 import com.mygardenworld.v1.AlipayLoginProgress
 import com.mygardenworld.v1.Event
@@ -22,6 +26,17 @@ data class LogWindow(
     val loadingOlder: Boolean = false,
 )
 
+/** Account redeem attempts for the selected account, newest first. */
+data class RedeemFeed(
+    val filter: AccountRedeemAttemptFilter = AccountRedeemAttemptFilter.ACCOUNT_REDEEM_ATTEMPT_FILTER_ALL,
+    val entries: List<AccountRedeemAttempt> = emptyList(),
+    val summary: AccountRedeemAttemptSummary? = null,
+    val nextBeforeId: Long = 0,
+    val hasMore: Boolean = false,
+    val loading: Boolean = false,
+    val loaded: Boolean = false,
+)
+
 data class WorkspaceUiState(
     val connection: WorkspaceConnectionState = WorkspaceConnectionState.CLOSED,
     val serverVersion: String = "",
@@ -30,6 +45,7 @@ data class WorkspaceUiState(
     val selectedAccountId: Long = 0,
     val state: WorkspaceState? = null,
     val logs: LogWindow = LogWindow(),
+    val redeem: RedeemFeed = RedeemFeed(),
     val alipay: AlipayLoginProgress? = null,
     val lastError: WorkspaceError? = null,
     val authExpired: Boolean = false,
@@ -53,11 +69,17 @@ class WorkspaceRepository(private val maxLogEvents: Int = 1_000) {
     fun select(accountId: Long) {
         _state.update { current ->
             if (current.selectedAccountId == accountId) current
-            else current.copy(selectedAccountId = accountId, state = null, logs = LogWindow(), lastError = null)
+            else current.copy(selectedAccountId = accountId, state = null, logs = LogWindow(), redeem = RedeemFeed(), lastError = null)
         }
     }
 
     fun markLoadingOlder() = _state.update { it.copy(logs = it.logs.copy(loadingOlder = true)) }
+
+    /** Records an outstanding redeem-attempt request; a filter change resets the feed. */
+    fun markRedeemLoading(filter: AccountRedeemAttemptFilter) = _state.update { current ->
+        val feed = if (filter == current.redeem.filter) current.redeem else RedeemFeed(filter = filter)
+        current.copy(redeem = feed.copy(loading = true))
+    }
 
     fun clearError() = _state.update { it.copy(lastError = null) }
 
@@ -109,7 +131,11 @@ class WorkspaceRepository(private val maxLogEvents: Int = 1_000) {
             is WorkspaceEvent.AlipayLogin -> _state.update { it.copy(alipay = event.progress) }
             is WorkspaceEvent.Error -> _state.update { it.copy(lastError = event.error) }
             is WorkspaceEvent.AuthExpired -> _state.update { it.copy(authExpired = true, connection = WorkspaceConnectionState.CLOSED) }
-            is WorkspaceEvent.RedeemAttempts -> Unit
+            is WorkspaceEvent.RedeemAttempts -> _state.update { current ->
+                val page = event.page
+                if (page.accountId != current.selectedAccountId || page.filter != current.redeem.filter) current
+                else current.copy(redeem = applyRedeemPage(current.redeem, page))
+            }
         }
     }
 
@@ -138,6 +164,21 @@ class WorkspaceRepository(private val maxLogEvents: Int = 1_000) {
             )
             else -> window
         }
+    }
+
+    private fun applyRedeemPage(feed: RedeemFeed, page: AccountRedeemAttemptPage): RedeemFeed {
+        val entries = if (page.replace) page.entriesList else {
+            val seen = feed.entries.mapTo(HashSet()) { it.id }
+            feed.entries + page.entriesList.filter { seen.add(it.id) }
+        }
+        return feed.copy(
+            entries = entries,
+            summary = if (page.hasSummary()) page.summary else feed.summary,
+            nextBeforeId = page.nextBeforeId,
+            hasMore = page.hasMoreBefore,
+            loading = false,
+            loaded = true,
+        )
     }
 
     /** Both lists are newest-first; ids deduplicate persisted events. */

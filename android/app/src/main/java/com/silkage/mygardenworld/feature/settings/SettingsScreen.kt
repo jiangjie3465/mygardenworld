@@ -10,6 +10,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
+import com.mygardenworld.v1.UserRole
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -37,7 +39,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
+fun SettingsScreen(container: AppContainer, onBack: () -> Unit, onOpenSessions: () -> Unit, onOpenAdmin: () -> Unit, onOpenRedeem: () -> Unit) {
     val auth by container.auth.state.collectAsStateWithLifecycle()
     val workspace by container.workspace.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
@@ -59,6 +61,11 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
                 SettingRow("当前用户") { Text((auth as? AuthState.SignedIn)?.user?.username ?: "-", style = MaterialTheme.typography.bodySmall) }
                 SettingRow("设备标识") { Text(container.auth.deviceId.take(8) + "…", style = MaterialTheme.typography.bodySmall) }
                 SettingRow("App 版本") { Text("${BuildConfig.VERSION_NAME} (${BuildConfig.BUILD_TYPE})", style = MaterialTheme.typography.bodySmall) }
+            }
+            SectionCard("更多") {
+                OutlinedButton(onClick = onOpenRedeem, modifier = Modifier.fillMaxWidth()) { Text("兑换码中心") }
+                OutlinedButton(onClick = onOpenSessions, modifier = Modifier.fillMaxWidth()) { Text("设备会话") }
+                if ((auth as? AuthState.SignedIn)?.user?.role == UserRole.USER_ROLE_ADMIN) OutlinedButton(onClick = onOpenAdmin, modifier = Modifier.fillMaxWidth()) { Text("用户管理") }
             }
             Button(
                 onClick = { busy = true; scope.launch { container.auth.logout(); busy = false } },

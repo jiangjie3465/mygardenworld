@@ -8,11 +8,14 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import com.silkage.mygardenworld.core.auth.AuthSession
 import com.silkage.mygardenworld.core.auth.AuthState
 import com.silkage.mygardenworld.core.auth.KeystoreTokenStore
+import com.silkage.mygardenworld.core.auth.SessionsRepository
 import com.silkage.mygardenworld.core.game.Catalog
 import com.silkage.mygardenworld.core.network.ConnectClient
 import com.silkage.mygardenworld.core.protocol.WorkspaceRepository
 import com.silkage.mygardenworld.core.protocol.WorkspaceSocket
 import com.silkage.mygardenworld.feature.accounts.AccountsRepository
+import com.silkage.mygardenworld.feature.admin.AdminRepository
+import com.silkage.mygardenworld.feature.redeem.RedeemRepository
 import com.silkage.mygardenworld.feature.workspace.PolicyRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,6 +33,9 @@ class AppContainer(application: Application) {
     val auth = AuthSession(KeystoreTokenStore(application), http, deviceName = "${Build.MANUFACTURER} ${Build.MODEL}".trim())
     val accounts = AccountsRepository(auth.rpc)
     val policies = PolicyRepository(auth.rpc)
+    val redeem = RedeemRepository(auth.rpc)
+    val admin = AdminRepository(auth.rpc)
+    val sessions = SessionsRepository(auth.rpc) { auth.deviceId }
     val workspace = WorkspaceRepository()
     val socket = WorkspaceSocket(scope, auth, http) { auth.rpc.baseUrl }
     @Volatile var catalog: Catalog = Catalog.EMPTY

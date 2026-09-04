@@ -21,9 +21,20 @@ func (d *DB) SaveRefreshToken(ctx context.Context, userID int64, token string, e
 	return d.SaveRefreshTokenSession(ctx, userID, token, expiresAt, "web", "", "")
 }
 
+// SaveRefreshTokenSession stores a refresh token. A mobile login replaces any
+// earlier session of the same user and device so one device holds exactly
+// one live session.
 func (d *DB) SaveRefreshTokenSession(ctx context.Context, userID int64, token string, expiresAt time.Time, clientType, deviceID, deviceName string) error {
 	if clientType != "web" && clientType != "mobile" {
 		return fmt.Errorf("invalid refresh token client type %q", clientType)
+	}
+	if clientType == "mobile" && deviceID != "" {
+		if _, err := d.ExecContext(ctx,
+			`DELETE FROM refresh_tokens WHERE user_id = ? AND client_type = 'mobile' AND device_id = ?`,
+			userID, deviceID,
+		); err != nil {
+			return err
+		}
 	}
 	_, err := d.ExecContext(ctx,
 		`INSERT INTO refresh_tokens(user_id, token_hash, expires_at, client_type, device_id, device_name, last_used_at)
