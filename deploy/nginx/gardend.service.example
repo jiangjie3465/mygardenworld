@@ -1,0 +1,31 @@
+[Unit]
+Description=mygardenworld gardend daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=gardend
+Group=gardend
+EnvironmentFile=/etc/mygardenworld/gardend.env
+ExecStart=/opt/mygardenworld/bin/gardend serve \
+  --data-dir /opt/mygardenworld/data \
+  --listen 127.0.0.1:50051 \
+  --jwt-secret ${GARDEND_JWT_SECRET} \
+  --admin-username admin \
+  --admin-password ${GARDEND_ADMIN_PASSWORD} \
+  --admin-email admin@garden.example.com \
+  --cors-origins https://garden.example.com \
+  --log-level info \
+  --log-format text \
+  --log-retention-days 7
+Restart=always
+RestartSec=5
+MemoryMax=400M
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/mygardenworld/data
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

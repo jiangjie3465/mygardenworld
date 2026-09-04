@@ -66,7 +66,8 @@ Android P4（已提交）：
 
 ### 与本文件的差距
 
-- [ ] 真机 Redmi K100 Pro 与 HTTPS 证书链未验证（第 10 节真机清单）。
+- [x] 生产部署：`https://dztel.dztddev.com` 由 Nginx 反代到 systemd 运行的 gardend（见 `deploy/nginx/`）；release APK 已在模拟器上通过该域名完成登录与 WebSocket 连接，证书链验证通过。
+- [ ] 真机 Redmi K100 Pro 验收（第 10 节真机清单）。
 - [ ] 日志页尚未实现 Web 的“竞赛同步日志折叠”。
 - [ ] 策略中的品质/花朵多选（SelectionMode 与 id 列表）尚未提供编辑器，只能编辑开关与数值。
 - [x] release 签名与 R8：`android/keystore.properties`（gitignored，见 `keystore.properties.example`）提供签名；release 开启 minify + 资源压缩，规则见 `app/proguard-rules.pro`；`minifiedDebug` 变体用于在 http 模拟器上验证 R8 规则。release APK 约 4 MB。
