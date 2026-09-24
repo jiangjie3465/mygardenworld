@@ -25,3 +25,11 @@ Install `certbot python3-certbot-nginx`, run
 `ssl_certificate_key` at `/etc/letsencrypt/live/<domain>/`, and add
 `/etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh` containing
 `systemctl reload nginx`. The `certbot.timer` unit renews automatically.
+
+## Upgrades
+
+`make deploy` (or `deploy/deploy.sh`) builds the embedded Web UI and a
+linux/amd64 binary, uploads it to `DEPLOY_HOST` (an ssh destination, default
+`garden-prod`), backs up the database and previous binary under
+`/opt/mygardenworld/backups/`, installs, restarts, and restores the backup if
+the service does not stay active.
