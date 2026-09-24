@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/SilkageNet/mygardenworld/internal/automation"
@@ -89,28 +91,33 @@ func TestExecutePearlHireOutcomesAndLocks(t *testing.T) {
 	base := time.UnixMilli(1_700_000_000_000)
 	snapshot := state.PearlHireAttemptSnapshot{At: base, PlaceID: 1, TargetUID: 2001, TicketCount: 3}
 	tests := []struct {
-		name        string
-		raw         string
-		hireErr     error
-		success     bool
-		failCount   int32
-		known       bool
-		ticketSpent bool
-		wantErr     string
-		wantFailed  bool
-		wantLocked  bool
-		wantNoted   bool
+		name         string
+		raw          string
+		hireErr      error
+		success      bool
+		failCount    int32
+		known        bool
+		ticketSpent  bool
+		wantErr      string
+		wantFailed   bool
+		wantSkipped  bool
+		wantLocked   bool
+		wantNoted    bool
+		wantFallback bool
 	}{
 		{name: "success explicit zero", raw: `{"3":{"0":0},"115":{}}`, success: true, known: true, ticketSpent: true, wantNoted: true},
 		{name: "contested", raw: `{"115":{}}`, failCount: 2, known: true, ticketSpent: true, wantErr: "contested", wantFailed: true, wantNoted: true},
-		{name: "gold fallback", raw: `{"3":{"0":1}}`, wantErr: "金币回退", wantFailed: true, wantLocked: true},
+		{name: "contested takes precedence over fallback", raw: `{"3":{"0":1},"115":{}}`, failCount: 2, known: true, ticketSpent: true, wantErr: "contested", wantFailed: true, wantNoted: true},
+		{name: "gold fallback", raw: `{"3":{"0":1}}`, wantErr: "未观察到雇佣券扣除", wantSkipped: true, wantFallback: true},
+		{name: "gold fallback with ticket decrement", raw: `{"3":{"0":1}}`, ticketSpent: true, wantErr: "已消耗 1 张雇佣券", wantSkipped: true, wantNoted: true, wantFallback: true},
 		{name: "malformed fallback", raw: `{"3":{"0":null}}`, wantErr: "格式异常", wantFailed: true, wantLocked: true},
 		{name: "postcondition unknown", raw: `{"115":{}}`, wantErr: "postcondition", wantFailed: true, wantLocked: true},
 		{name: "transport unknown", hireErr: errors.New("timeout"), wantErr: "timeout", wantFailed: true, wantLocked: true},
+		{name: "local veto", hireErr: &pearlHireNotSentError{err: errors.New("policy changed")}, wantErr: "policy changed"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			failed, locked, applied, noted := false, false, false, false
+			failed, skipped, locked, applied, noted := false, false, false, false, false
 			exec := pearlHireExecution{
 				preflight: func(time.Time) (state.PearlHireAttemptSnapshot, error) { return snapshot, nil },
 				hire: func(context.Context, clientproto.PearlPlaceHireRequest) (json.RawMessage, error) {
@@ -120,29 +127,102 @@ func TestExecutePearlHireOutcomesAndLocks(t *testing.T) {
 				outcome: func(state.PearlHireAttemptSnapshot) (bool, int32, bool) {
 					return tc.success, tc.failCount, tc.known
 				},
-				ticketSpent: func(state.PearlHireAttemptSnapshot) bool { return tc.ticketSpent },
-				markFailed:  func(uid int64, _ time.Time) { failed = uid == 2001 },
-				noteUsed:    func(context.Context, time.Time) { noted = true },
-				lockSession: func(string) { locked = true },
-				now:         func() time.Time { return base },
+				ticketSpent:   func(state.PearlHireAttemptSnapshot) bool { return tc.ticketSpent },
+				markFailed:    func(uid int64, _ time.Time) { failed = uid == 2001 },
+				skipCandidate: func(uid int64) { skipped = uid == 2001 },
+				noteUsed:      func(context.Context, time.Time) { noted = true },
+				lockSession:   func(string) { locked = true },
+				now:           func() time.Time { return base },
 			}
-			_, err := executePearlHire(context.Background(), clientproto.PearlPlaceHireRequest{PlaceId: 1, DstUid: 2001}, exec)
+			raw, err := executePearlHire(context.Background(), clientproto.PearlPlaceHireRequest{PlaceId: 1, DstUid: 2001}, exec)
 			if tc.wantErr == "" && err != nil {
 				t.Fatal(err)
 			}
 			if tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)) {
 				t.Fatalf("err=%v, want substring %q", err, tc.wantErr)
 			}
-			if failed != tc.wantFailed || locked != tc.wantLocked {
-				t.Fatalf("failed=%t locked=%t", failed, locked)
+			if failed != tc.wantFailed || skipped != tc.wantSkipped || locked != tc.wantLocked {
+				t.Fatalf("failed=%t skipped=%t locked=%t", failed, skipped, locked)
 			}
 			if noted != tc.wantNoted {
 				t.Fatalf("noted=%t, want %t", noted, tc.wantNoted)
+			}
+			var fallbackErr *pearlHireCandidateFallbackError
+			if got := errors.As(err, &fallbackErr); got != tc.wantFallback {
+				t.Fatalf("candidate fallback=%t, want %t (err=%v)", got, tc.wantFallback, err)
+			}
+			if tc.wantFallback {
+				if fallbackErr.TicketSpent != tc.ticketSpent {
+					t.Fatalf("fallback ticketSpent=%t, want %t", fallbackErr.TicketSpent, tc.ticketSpent)
+				}
+				if len(raw) == 0 {
+					t.Fatal("recognized fallback discarded its authoritative response")
+				}
 			}
 			if tc.raw != "" && tc.hireErr == nil && !applied {
 				t.Fatal("authoritative payload was not applied")
 			}
 		})
+	}
+}
+
+func TestPearlHireRechecksAfterPacingWithoutLockingUnsentAttempt(t *testing.T) {
+	for _, reject := range []bool{false, true} {
+		t.Run(fmt.Sprint(reject), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				r := newOperationEventTestRunner()
+				r.pacer = newRequestPacer(RequestPacing{})
+				start := time.Now()
+				r.pacer.lastRequest = start
+				checks := 0
+				locked, sent := false, false
+				_, err := executePearlHire(t.Context(), clientproto.PearlPlaceHireRequest{PlaceId: 1, DstUid: 2001}, pearlHireExecution{
+					preflight: func(at time.Time) (state.PearlHireAttemptSnapshot, error) {
+						checks++
+						if checks == 2 && reject {
+							return state.PearlHireAttemptSnapshot{}, errors.New("policy changed while paced")
+						}
+						return state.PearlHireAttemptSnapshot{At: at}, nil
+					},
+					hire: func(ctx context.Context, _ clientproto.PearlPlaceHireRequest) (json.RawMessage, error) {
+						if err := r.beforeGameRPC(ctx, clientproto.RPCPearlPlaceHire.String()); err != nil {
+							return nil, err
+						}
+						sent = true
+						return json.RawMessage(`{}`), nil
+					},
+					outcome: func(snapshot state.PearlHireAttemptSnapshot) (bool, int32, bool) {
+						if snapshot.At.Sub(start) != 2*time.Second {
+							t.Fatalf("snapshot was not refreshed at send time: %v", snapshot.At.Sub(start))
+						}
+						return true, 0, true
+					},
+					markFailed:    func(int64, time.Time) { t.Fatal("unsent candidate marked contested") },
+					skipCandidate: func(int64) { t.Fatal("unsent candidate skipped") },
+					lockSession:   func(string) { locked = true },
+				})
+				if (err != nil) != reject || locked || sent == reject || checks != 2 {
+					t.Fatalf("err=%v locked=%v sent=%v checks=%d", err, locked, sent, checks)
+				}
+			})
+		})
+	}
+}
+
+func TestQueuedPearlHireHonorsAutomationPause(t *testing.T) {
+	r := newOperationEventTestRunner()
+	p := automation.DefaultPolicy()
+	p.AutomationEnabled = false
+	r.SetPolicy(p)
+	ctx := context.WithValue(t.Context(), scheduledOperationKey{}, true)
+	ctx = context.WithValue(ctx, pearlHireSendGuardKey{}, func() error {
+		t.Fatal("paused automation reached spend-time snapshot")
+		return nil
+	})
+	err := r.beforeGameRPC(ctx, clientproto.RPCPearlPlaceHire.String())
+	var notSent *pearlHireNotSentError
+	if !errors.As(err, &notSent) || !strings.Contains(err.Error(), "自动化已关闭") {
+		t.Fatalf("pause did not veto queued hire: %v", err)
 	}
 }
 
@@ -162,6 +242,7 @@ func TestPearlHireOperationRegistryAndFreshSessionReset(t *testing.T) {
 	s := state.New()
 	s.LockPearlHireSession("fallback")
 	s.MarkPearlHireFailed(2001, time.Now())
+	s.SkipPearlHireCandidate(2002)
 	r := &Runner{
 		state: s,
 		operationCooldowns: map[string]operationCooldown{
@@ -169,9 +250,9 @@ func TestPearlHireOperationRegistryAndFreshSessionReset(t *testing.T) {
 			"unrelated": {},
 		},
 	}
-	r.resetPearlHireSession()
+	r.resetPearlHireSession(false)
 	view := s.PearlHire()
-	if view.SessionLocked || len(view.FailedUntilMs) != 0 {
+	if view.SessionLocked || len(view.FailedUntilMs) != 0 || len(view.SkippedUIDs) != 0 {
 		t.Fatalf("state reset incomplete: %+v", view)
 	}
 	if _, exists := r.operationCooldowns[clientproto.RPCPearlPlaceHire.String()+":1:2001"]; exists {

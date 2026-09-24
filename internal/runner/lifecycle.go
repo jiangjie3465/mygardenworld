@@ -26,6 +26,10 @@ var errWebSocketSessionStart = errors.New("websocket session start failed")
 // Start kicks off the runner. Blocks until login completes (or fails); the
 // WebSocket loop and decision loop run in background goroutines.
 func (r *Runner) Start(ctx context.Context) error {
+	return r.start(ctx, false)
+}
+
+func (r *Runner) start(ctx context.Context, activate bool) error {
 	r.mu.Lock()
 	if r.cancel != nil {
 		r.mu.Unlock()
@@ -35,11 +39,27 @@ func (r *Runner) Start(ctx context.Context) error {
 	r.cancel = cancel
 	r.mu.Unlock()
 	fail := func(err error) error {
-		cancel()
-		r.mu.Lock()
-		r.cancel = nil
-		r.mu.Unlock()
+		r.Stop()
+		if ctx.Err() != nil {
+			r.emit(Event{Kind: "connection_start_cancelled", Category: "account", Domain: "account.connection", Action: "start_cancelled",
+				Label: "启动取消", Message: "账号启动请求已取消，未完成的连接已关闭，请重试"})
+		}
+		if ctx.Err() == nil && !errors.Is(err, context.Canceled) && !errors.Is(err, ErrMaintenance) && !isReputationGuardError(err) && !r.isSessionInvalidated() {
+			r.emit(Event{Kind: "connection_unavailable", Category: "account", Domain: "account.connection", Action: "start_failed",
+				Label: "连接异常", Level: "error", Message: "账号启动失败，未进入自动重连，请查看启动错误后重试"})
+		}
 		return err
+	}
+	finish := func(client *babigame.Client, username, password string) error {
+		if err := r.completeStartup(ctx, activate); err != nil {
+			return fail(err)
+		}
+		if client != nil {
+			r.emitConnectionRecovered()
+		}
+		go r.decisionLoop(rctx)
+		go r.connectionLoop(rctx, username, password, client)
+		return nil
 	}
 
 	username, password, err := r.db.GetCredentials(ctx, r.account.ID)
@@ -49,44 +69,72 @@ func (r *Runner) Start(ctx context.Context) error {
 
 	r.installStateHandlers()
 	r.hydratePearlHireTicketUsage(ctx, time.Now())
+	if err := r.loadAccountSafety(ctx); err != nil {
+		return fail(err)
+	}
+	// Publish explicit activation before choosing a protected recovery route.
+	// Otherwise a paused account started after the deadline still has its old
+	// disabled policy here and incorrectly tries the cache before fresh auth.
+	// The background worker retains all cooldown, opt-in and durable budget gates.
+	if s, _ := r.accountSafetySnapshot(); s.RestrictionCode != 0 {
+		r.emit(Event{Kind: "account_request_paused", Category: "account", Domain: "account.request", Action: "blocked",
+			Label: "账号请求保护", Message: r.restrictionError().Error(), Level: "warn"})
+		return finish(nil, username, password)
+	}
 	client, err := r.connectStoredOrFresh(ctx, username, password)
 	if err != nil {
-		if r.autoReloginPending() {
-			go r.decisionLoop(rctx)
-			go r.connectionLoop(rctx, username, password, nil)
-			return nil
+		if ctx.Err() != nil {
+			return fail(ctx.Err())
 		}
-		if errors.Is(err, errWebSocketSessionStart) {
+		if errors.Is(err, ErrMaintenance) || isReputationGuardError(err) || (r.isSessionInvalidated() && !r.autoReloginPending()) {
+			return fail(err)
+		}
+		if r.autoReloginPending() {
+			return finish(nil, username, password)
+		}
+		if errors.Is(err, errWebSocketSessionStart) || r.restrictionError() != nil {
 			// Credentials and the HTTP login path were good enough to reach the
 			// game WebSocket. Keep the runner alive so transient DNS, gateway, or
 			// handshake failures recover with the normal reconnect backoff.
-			go r.decisionLoop(rctx)
-			go r.connectionLoop(rctx, username, password, nil)
-			return nil
+			return finish(nil, username, password)
 		}
 		return fail(err)
 	}
 
-	go r.decisionLoop(rctx)
-	go r.connectionLoop(rctx, username, password, client)
-	return nil
+	return finish(client, username, password)
 }
 
-// connectStoredOrFresh first tries the encrypted session captured during
-// account creation or the previous successful login. A rejected/corrupt cache
-// is deleted and the channel-specific fresh login becomes the fallback.
+// connectStoredOrFresh prefers encrypted session reuse for normal reconnects.
+// Explicitly opted-in 5000 recovery prefers one fresh authentication after the
+// first cooldown, subject to the durable allowance. It never deletes a usable
+// cache merely because 5000 occurred.
 func (r *Runner) connectStoredOrFresh(ctx context.Context, username, password string) (*babigame.Client, error) {
+	ctx, release, gateErr := r.beginGameWork(ctx)
+	if gateErr != nil {
+		return nil, gateErr
+	}
+	defer release()
+	if !r.waitAccountRestriction(ctx) {
+		return nil, ctx.Err()
+	}
+	if r.freshRecoveryEligible(time.Now()) {
+		return r.connectFresh(ctx, username, password)
+	}
 	blob, err := r.db.LoadSession(ctx, r.account.ID)
 	if err != nil {
+		if r.restrictionError() != nil {
+			return nil, fmt.Errorf("读取恢复会话失败: %w", err)
+		}
 		r.log.Warn("load cached session failed; using fresh login", "err", err)
 		if deleteErr := r.db.DeleteSession(ctx, r.account.ID); deleteErr != nil {
-			r.log.Warn("delete unreadable cached session failed", "err", deleteErr)
+			return nil, fmt.Errorf("delete unreadable cached session: %w", deleteErr)
 		}
 	} else if len(blob) > 0 {
 		session, decodeErr := babigame.UnmarshalSessionJSON(blob, r.cfg)
 		if decodeErr == nil {
 			httpc := r.prepareHTTPClient(ctx, session.DeviceID, session.UUID, session.Session0)
 			session.Cfg = httpc.Cfg
+			_, restoreRevision := r.accountSafetySnapshot()
 			client, resumeErr := r.connectSession(ctx, httpc, session, true)
 			if resumeErr == nil {
 				return client, nil
@@ -94,21 +142,70 @@ func (r *Runner) connectStoredOrFresh(ctx context.Context, username, password st
 			// A transport outage does not prove that the cached route token is
 			// invalid. Preserve it for the reconnect loop instead of replacing a
 			// reusable session with repeated fresh HTTP logins.
-			if errors.Is(resumeErr, errWebSocketSessionStart) {
+			if r.preserveCachedSession(ctx, resumeErr, restoreRevision) {
 				return nil, resumeErr
 			}
 			decodeErr = resumeErr
 		}
+		if s, _ := r.accountSafetySnapshot(); s.RestrictionCode == 5000 {
+			return nil, fmt.Errorf("缓存会话不可用，5000 保护仍生效: %w", decodeErr)
+		}
 		r.log.Info("cached session rejected; using fresh login", "err", decodeErr)
 		if deleteErr := r.db.DeleteSession(ctx, r.account.ID); deleteErr != nil {
-			r.log.Warn("delete rejected cached session failed", "err", deleteErr)
+			return nil, fmt.Errorf("delete rejected cached session: %w", deleteErr)
 		}
 	}
 	return r.connectFresh(ctx, username, password)
 }
 
+// preserveCachedSession distinguishes a pending recovery validation from an
+// active cooldown. After the deadline, index.reLogin code 91102 explicitly
+// invalidates the cached login, not the recovery attempt itself. Keep the
+// restriction until a fresh login baseline succeeds; never release normal RPCs
+// merely because its deadline elapsed or replace a cache on ambiguous errors.
+func (r *Runner) preserveCachedSession(ctx context.Context, err error, restoreRevision uint64) bool {
+	if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, errWebSocketSessionStart) || r.isSessionInvalidated() {
+		return true
+	}
+	s, revision := r.accountSafetySnapshot()
+	if s.RestrictionCode == 0 {
+		return false
+	}
+	if s.RestrictionCode == 5000 {
+		return true
+	}
+	if s.RestrictedUntilMS > time.Now().UnixMilli() || revision != restoreRevision {
+		return true
+	}
+	var rejected *babigame.RPCServerError
+	return !errors.As(err, &rejected) || rejected == nil || rejected.Name != clientproto.RPCIndexReLogin ||
+		rejected.Envelope.ErrorCode() != 91102 || rejected.Envelope.IsSessionDisplaced()
+}
+
 func (r *Runner) connectFresh(ctx context.Context, username, password string) (*babigame.Client, error) {
+	ctx, release, gateErr := r.beginGameWork(ctx)
+	if gateErr != nil {
+		return nil, gateErr
+	}
+	defer release()
+	if !r.waitAccountRestriction(ctx) {
+		return nil, ctx.Err()
+	}
 	httpc := r.prepareHTTPClient(ctx, "", "", "")
+	// Every automatic fresh-authentication path shares the durable allowance;
+	// cache rejection/missing credentials must not bypass the opt-in or budget.
+	if err := r.reserveFreshRecovery(ctx, time.Now()); err != nil {
+		return nil, err
+	}
+	// Policy may have changed while waiting for the durable reservation.
+	if err := r.checkFreshRecoveryAuthorization(ctx); err != nil {
+		return nil, err
+	}
+	if s, _ := r.accountSafetySnapshot(); s.RestrictionCode == 5000 {
+		r.emit(Event{Kind: "account_recovery_authentication", Category: "account", Domain: "account.request", Action: "authenticating",
+			Label: "账号恢复认证", Message: "5000 保护冷却已结束，按已启用设置跳过旧会话，尝试本次唯一的新认证；额度已持久化，失败也不会重试新认证", Level: "warn"})
+	}
 	var (
 		session *babigame.Session
 		err     error
@@ -125,13 +222,22 @@ func (r *Runner) connectFresh(ctx context.Context, username, password string) (*
 		err = fmt.Errorf("unsupported channel %q", r.account.Channel)
 	}
 	if err != nil {
+		r.stopForLoginRefusal(err)
 		return nil, fmt.Errorf("login: %w", err)
+	}
+	if err := r.checkFreshRecoveryAuthorization(ctx); err != nil {
+		return nil, err
 	}
 	return r.connectSession(ctx, httpc, session, false)
 }
 
 func (r *Runner) prepareHTTPClient(ctx context.Context, deviceID, uuid, session0 string) *babigame.HTTPClient {
 	httpc := babigame.NewHTTPClient(r.cfg, deviceID, uuid, session0)
+	if !r.cfg.IsNative {
+		// Alipay initializes through pack/init only when a fresh login is
+		// needed. Restoring a session must retain its authenticated UUID.
+		return httpc
+	}
 	if pkg, err := httpc.QueryPackageConfig(ctx); err == nil {
 		if pkg.GameVersion != "" {
 			httpc.Cfg.GameVersion = pkg.GameVersion
@@ -158,9 +264,40 @@ func (r *Runner) prepareHTTPClient(ctx context.Context, deviceID, uuid, session0
 	return httpc
 }
 
-func (r *Runner) connectSession(ctx context.Context, httpc *babigame.HTTPClient, session *babigame.Session, resume bool) (*babigame.Client, error) {
+func (r *Runner) connectSession(ctx context.Context, httpc *babigame.HTTPClient, session *babigame.Session, resume bool) (result *babigame.Client, err error) {
+	// Track the actual connection until physical close, even before this
+	// runner is registered or while Stop races with reconnect installation.
+	connectionCtx, releaseConnection, gateErr := r.beginGameWork(context.Background())
+	if gateErr != nil {
+		return nil, gateErr
+	}
 	client := babigame.NewClient(session)
+	defer func() {
+		if err == nil {
+			err = ctx.Err()
+		}
+		if err != nil {
+			_ = client.Close()
+			r.clearDisconnectedClient(client)
+			result = nil
+		}
+	}()
+	// Activity notices can arrive during login, before invalidation handlers
+	// are safe to install on a not-yet-validated cached session.
+	client.OnBinary(r.observeActivityRefresh)
+	// Explicit displacement must also win during login, before normal
+	// invalidation handlers are installed (ordinary expired caches may retry).
+	client.OnBinary(func(items []json.RawMessage) {
+		if reason, displaced := babigame.SessionDisplacementFromBinary(items); displaced {
+			r.handleSessionInvalidated(reason, true)
+		}
+	})
+	client.OnClosed = releaseConnection
+	context.AfterFunc(connectionCtx, func() { _ = client.Close() })
 	client.DebugWriter = r.debugWriter
+	client.BeforeRPC = r.beforeGameRPC
+	client.BeginRPC = r.beginGameWork
+	client.OnRPCResponse = r.observeGameRPC
 	if err := client.Connect(ctx); err != nil {
 		_ = client.Close()
 		return nil, fmt.Errorf("%w: ws connect: %w", errWebSocketSessionStart, err)
@@ -169,10 +306,9 @@ func (r *Runner) connectSession(ctx context.Context, httpc *babigame.HTTPClient,
 	// A cached route token resumes with index.reLogin; a freshly issued route
 	// token uses index.login, matching the official client lifecycle.
 	r.state.BeginFmlMembershipSnapshot()
-	var (
-		v   json.RawMessage
-		err error
-	)
+	safety, safetyRevision := r.accountSafetySnapshot()
+	recovering := safety.RestrictionCode != 0
+	var v json.RawMessage
 	if resume {
 		v, err = client.ReLogin(ctx, r.cfg.IsSimulator)
 	} else {
@@ -182,6 +318,7 @@ func (r *Runner) connectSession(ctx context.Context, httpc *babigame.HTTPClient,
 		r.state.ApplyV(v)
 		r.syncAccountDisplayName(ctx, v, session)
 	} else {
+		r.observeRecoveryDisplacement(err)
 		_ = client.Close()
 		return nil, fmt.Errorf("启动%s失败: %w", map[bool]string{true: "恢复登录", false: "登录"}[resume], err)
 	}
@@ -190,6 +327,13 @@ func (r *Runner) connectSession(ctx context.Context, httpc *babigame.HTTPClient,
 	// usable. Otherwise an expired cache could stop the runner before its fresh
 	// login fallback gets a chance to run.
 	r.attachClientHandlers(client)
+	if recovering {
+		if err := r.verifyRestrictionRecovery(ctx, client, session, safetyRevision, resume, v); err != nil {
+			r.observeRecoveryDisplacement(err)
+			r.deferRestrictionProbe(safetyRevision, err)
+			return nil, err
+		}
+	}
 	r.resetFreshSessionAutomationState()
 	r.mu.Lock()
 	r.session = session
@@ -203,15 +347,9 @@ func (r *Runner) connectSession(ctx context.Context, httpc *babigame.HTTPClient,
 		r.clearDisconnectedClient(client)
 		return nil, r.sessionInvalidatedError("session invalidated during startup")
 	}
-	if v, err := client.LazySync(ctx); err == nil {
-		r.state.ApplyV(v)
-	} else {
-		r.log.Warn("ws lazy sync failed", "err", err)
+	if !recovering {
+		r.applyStartupLazySync(client.LazySync(ctx))
 	}
-	// index.login + lazySync form the startup membership baseline. Some channel
-	// fronts omit IFmlTot.mb (25.1) for joined accounts, so finalization also
-	// accepts the guild ID in IFmlTot.fml (25.0) as positive membership evidence.
-	r.state.FinalizeFmlMembershipSnapshot()
 	if r.isSessionInvalidated() {
 		_ = client.Close()
 		r.clearDisconnectedClient(client)
@@ -252,6 +390,9 @@ func (r *Runner) connectSession(ctx context.Context, httpc *babigame.HTTPClient,
 	}
 	if err := r.db.UpdateLogin(ctx, r.account.ID, session.AID, int32(session.GsIdx), session.WSURL(), time.Now().UTC()); err != nil {
 		r.log.Warn("persist login metadata failed", "err", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	message := "已连接"
 	if resume {
@@ -298,12 +439,19 @@ func startSourceLabel(source StartSource) string {
 	}
 }
 
-func (r *Runner) resetPearlHireSession() {
+func (r *Runner) resetPearlHireSession(preserveSafety bool) {
 	if r.state != nil {
-		r.state.ResetPearlHireSession()
+		if preserveSafety {
+			r.state.ResetPearlHireObservations()
+		} else {
+			r.state.ResetPearlHireSession()
+		}
 	}
 	r.mu.Lock()
 	for key := range r.operationCooldowns {
+		if preserveSafety && (strings.HasPrefix(key, clientproto.RPCPearlPlaceHire.String()+":") || key == "basic.pearl.hire.blocked") {
+			continue
+		}
 		if strings.HasPrefix(key, clientproto.RPCPearlPlaceHire.String()+":") ||
 			strings.HasPrefix(key, clientproto.RPCOpptGetDetailOppts.String()+":") ||
 			strings.HasPrefix(key, clientproto.RPCPearlGetHireStateByUids.String()+":") ||
@@ -318,10 +466,13 @@ func (r *Runner) resetPearlHireSession() {
 
 func (r *Runner) resetFreshSessionAutomationState() {
 	r.resetSideLaneFairness()
-	r.resetPearlHireSession()
+	// Transport reconnects, including a new route token, cannot confirm an
+	// ambiguous paid mutation. A new Runner already owns fresh session state.
+	r.resetPearlHireSession(true)
 	r.resetResidentOrderSession()
 	r.mu.Lock()
 	clear(r.cultivateUpgradeRejects)
+	r.lastActivityDiagnostic = ""
 	r.mu.Unlock()
 	if r.state != nil {
 		// Contest window: every login/reconnect must re-fetch the task pool
@@ -356,18 +507,28 @@ func (r *Runner) syncAccountDisplayName(ctx context.Context, rawV json.RawMessag
 
 func (r *Runner) attachClientHandlers(client *babigame.Client) {
 	client.OnSessionExpired(func(d babigame.WSResponseD) {
-		r.handleSessionInvalidated(d.ErrorMsg(), d.IsSessionDisplaced())
-	})
-	client.OnBinary(func(items []json.RawMessage) {
-		if reason, ok := babigame.SessionDisplacementFromBinary(items); ok {
-			r.handleSessionInvalidated(reason, true)
+		// 97778's localized text itself asks the player to log in later.
+		// That wording must not discard the cache or disable automation as
+		// ordinary expiry. Explicit displacement evidence still wins.
+		if (d.ErrorCode() == 97777 || d.ErrorCode() == 97778) && !d.IsSessionDisplaced() {
+			return
 		}
+		r.handleSessionInvalidated(d.ErrorMsg(), d.IsSessionDisplaced())
 	})
 	for _, ns := range observedCaptureNamespaces() {
 		ns := ns
 		client.OnNamespace(ns, func(_ string, raw json.RawMessage, _ babigame.WSResponseD) {
 			fragment, _ := json.Marshal(map[string]json.RawMessage{ns: raw})
+			if ns != "25" {
+				r.state.ApplyV(fragment)
+				return
+			}
+			before := r.state.FmlBuild()
 			r.state.ApplyV(fragment)
+			after := r.state.FmlBuild()
+			if before.MembershipObserved != after.MembershipObserved || before.MemberFmlID != after.MemberFmlID {
+				r.emitFmlMembershipDiagnostic("namespace.25", before, nil)
+			}
 		})
 	}
 }
@@ -377,6 +538,7 @@ func observedCaptureNamespaces() []string {
 }
 
 func (r *Runner) installStateHandlers() {
+	r.state.SetOnRaceChange(r.wakeDecision)
 	r.state.SetOnChange(func(changes []state.LandChange) {
 		if len(changes) > 0 {
 			r.mu.Lock()
@@ -398,11 +560,12 @@ func (r *Runner) installStateHandlers() {
 	})
 	r.state.SetOnInventoryChange(func(snap state.InventorySnapshot) {
 		r.stats.ObserveInventorySnapshot(snap, time.Now())
-		raw, _ := json.Marshal(snap)
+		// Log the observed delta, not a full warehouse snapshot on every change.
+		// Runtime statistics still consume the original authoritative snapshot.
 		r.emit(Event{
 			Kind:        "inventory_changed",
 			Message:     inventoryChangeMessage(snap),
-			PayloadJSON: string(raw),
+			PayloadJSON: inventoryChangePayload(snap),
 		})
 	})
 }

@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	connect "connectrpc.com/connect"
 
@@ -37,28 +38,53 @@ type Services struct {
 	Redeem        *redeemsvc.Service
 	RedeemLimiter *RedeemSubmitLimiter
 
+	identityProbes identityProbeGuard
+
 	workspaceProjectionMu sync.Mutex
 	workspaceProjections  map[int64]*workspaceProjectionCache
 }
 
 // resolveAccount resolves the only public account identity: its stable id.
-// Non-admin users can only access their own accounts.
+// Every user, including admins, can only access their own game accounts.
 func (svc *Services) resolveAccount(ctx context.Context, id int64) (*store.Account, error) {
-	identity := auth.IdentityFromContext(ctx)
+	acc, err := svc.resolveAccountIncludingDeleting(ctx, id)
+	if err == nil && acc.DeletionPending {
+		return nil, mapErr(store.ErrAccountDeleting)
+	}
+	return acc, err
+}
+
+func (svc *Services) resolveAccountIncludingDeleting(ctx context.Context, id int64) (*store.Account, error) {
+	userID, err := requireUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if id <= 0 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("valid account id required"))
 	}
-	acc, err := svc.DB.GetAccountByID(ctx, id)
+	acc, err := svc.DB.GetAccountIncludingDeleting(ctx, id)
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	if identity != nil && identity.Role != "admin" && acc.UserID != identity.UserID {
+	if acc.UserID != userID {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("not your account"))
 	}
 	return acc, nil
 }
 
+func requireUserID(ctx context.Context) (int64, error) {
+	id := auth.UserIDFromContext(ctx)
+	if id <= 0 {
+		return 0, connect.NewError(connect.CodeUnauthenticated, errors.New("authentication required"))
+	}
+	return id, nil
+}
+
 func (svc *Services) CreateAccount(ctx context.Context, req *connect.Request[pb.CreateAccountRequest]) (*connect.Response[pb.CreateAccountResponse], error) {
+	userID, err := requireUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	in := req.Msg
 	username := strings.TrimSpace(in.GetUsername())
 	password := in.GetPassword()
@@ -75,29 +101,33 @@ func (svc *Services) CreateAccount(ctx context.Context, req *connect.Request[pb.
 	if channelStr == string(babigame.ChannelAlipay) {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("alipay accounts must use StartAlipayLogin"))
 	}
-	userID := auth.UserIDFromContext(ctx)
-	if userID > 0 {
-		user, err := svc.DB.GetUserByID(ctx, userID)
-		if err != nil {
-			return nil, mapErr(err)
-		}
-		count, err := svc.DB.CountAccountsByUser(ctx, userID)
-		if err != nil {
-			return nil, mapErr(err)
-		}
-		if count >= user.MaxAccounts {
-			return nil, connect.NewError(connect.CodeResourceExhausted, fmt.Errorf("account quota reached (%d/%d)", count, user.MaxAccounts))
-		}
+	if _, err := svc.DB.GetAccountByChannelUsername(ctx, userID, channelStr, username); err != nil && !errors.Is(err, store.ErrAccountNotFound) {
+		return nil, mapErr(err)
+	}
+	initialPolicy, err := svc.initialAccountPolicy(ctx, in.GetInitialPolicyAccountId())
+	if err != nil {
+		return nil, err
+	}
+	user, err := svc.DB.GetUserByID(ctx, userID)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	count, err := svc.DB.CountAccountsByUser(ctx, userID)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	if count >= user.MaxAccounts {
+		return nil, connect.NewError(connect.CodeResourceExhausted, fmt.Errorf("account quota reached (%d/%d)", count, user.MaxAccounts))
 	}
 	session, err := svc.probeAccountIdentity(ctx, channelStr, username, password)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("login: %s", formatLoginErr(err)))
+		return nil, accountLoginError(err)
 	}
 	name, err := svc.DB.UniqueAccountName(ctx, userID, 0, babigame.DisplayNameFromSession(session, username))
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	acc, err := svc.DB.CreateAccount(ctx, userID, name, channelStr, username, password)
+	acc, err := svc.DB.CreateAccountWithPolicy(ctx, userID, name, channelStr, username, password, initialPolicy)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -106,12 +136,9 @@ func (svc *Services) CreateAccount(ctx context.Context, req *connect.Request[pb.
 		acc = updated
 	}
 	resp := &pb.CreateAccountResponse{Account: store.AccountToProto(acc)}
-	if r, err := svc.Manager.StartWithSource(ctx, acc.ID, runner.StartSourceAccountCreate); err != nil {
+	if r, err := svc.startAutomation(ctx, acc.ID, runner.StartSourceAccountCreate, false); err != nil {
 		resp.LoginError = formatLoginErr(err)
 	} else {
-		if err := svc.enableAutomation(ctx, acc.ID, r); err != nil {
-			resp.LoginError = formatLoginErr(err)
-		}
 		out := store.AccountToProto(r.Account())
 		out.Connected = r.Connected()
 		resp.Account = out
@@ -134,23 +161,24 @@ func formatLoginErr(err error) string {
 }
 
 func (svc *Services) DeleteAccount(ctx context.Context, req *connect.Request[pb.DeleteAccountRequest]) (*connect.Response[pb.DeleteAccountResponse], error) {
-	acc, err := svc.resolveAccount(ctx, req.Msg.GetId())
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	acc, err := svc.resolveAccountIncludingDeleting(ctx, req.Msg.GetId())
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	_ = svc.Manager.Stop(acc.ID)
-	if err := svc.DB.DeleteAccount(ctx, acc.ID); err != nil {
+	if err := svc.Manager.DeleteAccount(ctx, acc.ID); err != nil {
 		return nil, mapErr(err)
 	}
-	return connect.NewResponse(&pb.DeleteAccountResponse{}), nil
+	return connect.NewResponse(&pb.DeleteAccountResponse{DeletionPending: true}), nil
 }
 
 func (svc *Services) ListAccounts(ctx context.Context, _ *connect.Request[pb.ListAccountsRequest]) (*connect.Response[pb.ListAccountsResponse], error) {
-	var userID int64
-	if !auth.IsAdmin(ctx) {
-		userID = auth.UserIDFromContext(ctx)
+	userID, err := requireUserID(ctx)
+	if err != nil {
+		return nil, err
 	}
-	accounts, err := svc.DB.ListAccounts(ctx, userID)
+	accounts, err := svc.DB.ListAccountsIncludingDeleting(ctx, userID)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -170,11 +198,8 @@ func (svc *Services) ConnectAccount(ctx context.Context, req *connect.Request[pb
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	r, err := svc.Manager.ReloadWithSource(ctx, acc.ID, runner.StartSourceControlPanel)
+	r, err := svc.startAutomation(ctx, acc.ID, runner.StartSourceControlPanel, true)
 	if err != nil {
-		return nil, mapErr(err)
-	}
-	if err := svc.enableAutomation(ctx, acc.ID, r); err != nil {
 		return nil, mapErr(err)
 	}
 	out := store.AccountToProto(r.Account())
@@ -190,11 +215,12 @@ func (svc *Services) DisconnectAccount(ctx context.Context, req *connect.Request
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	r := svc.Manager.Get(acc.ID)
-	if err := svc.disableAutomation(ctx, acc.ID, r); err != nil {
+	if err := svc.Manager.PauseAutomation(ctx, acc.ID, true); err != nil {
 		return nil, mapErr(err)
 	}
-	_ = svc.Manager.Stop(acc.ID)
+	if svc.Redeem != nil {
+		svc.Redeem.NotifyAccountPolicyChanged()
+	}
 	// Stop is a no-op when the runner already exited after a kick; still clear
 	// the cached 异常 reason so an intentional stop returns to plain offline.
 	svc.Manager.ClearLastDiagnostics(acc.ID)
@@ -205,12 +231,24 @@ func (svc *Services) DisconnectAccount(ctx context.Context, req *connect.Request
 
 func mapErr(err error) error {
 	switch {
+	case errors.Is(err, context.Canceled):
+		return connect.NewError(connect.CodeCanceled, err)
+	case errors.Is(err, context.DeadlineExceeded):
+		return connect.NewError(connect.CodeDeadlineExceeded, err)
+	case errors.Is(err, store.ErrAccountDeleting):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
+	case errors.Is(err, runner.ErrMaintenance):
+		return connect.NewError(connect.CodeUnavailable, err)
 	case errors.Is(err, sql.ErrNoRows):
 		return connect.NewError(connect.CodeNotFound, errors.New("resource not found"))
 	case errors.Is(err, store.ErrAccountNotFound):
 		return connect.NewError(connect.CodeNotFound, err)
 	case errors.Is(err, store.ErrAccountExists):
 		return connect.NewError(connect.CodeAlreadyExists, err)
+	case errors.Is(err, store.ErrAccountQuota):
+		return connect.NewError(connect.CodeResourceExhausted, err)
+	case errors.Is(err, store.ErrUserInactive):
+		return connect.NewError(connect.CodePermissionDenied, err)
 	case errors.Is(err, store.ErrUserNotFound):
 		return connect.NewError(connect.CodeNotFound, err)
 	case errors.Is(err, store.ErrUserExists):

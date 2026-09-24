@@ -34,6 +34,10 @@ const (
 	RedeemAttemptFilterRedeemed    = "redeemed"
 	RedeemAttemptFilterUnavailable = "unavailable"
 	RedeemAttemptFilterAttention   = "attention"
+
+	// RedeemAttemptLeaseDuration exceeds the bounded account-start and game-RPC
+	// windows while still allowing abandoned work to recover during runtime.
+	RedeemAttemptLeaseDuration = 3 * time.Minute
 )
 
 type RedeemCode struct {
@@ -52,6 +56,7 @@ type RedeemCode struct {
 	Revision            int64
 	FirstSeenAt         time.Time
 	UpdatedAt           time.Time
+	ExpiryOverridden    bool
 }
 
 type RedeemCodeInput struct {
@@ -111,6 +116,8 @@ type RedeemAttempt struct {
 	Fingerprint  string
 	ExpiresAt    *time.Time
 	AttemptCount int
+	RunToken     string
+	LeaseUntil   time.Time
 }
 
 type RedeemAttemptRecord struct {
@@ -241,7 +248,10 @@ INSERT INTO redeem_codes(
 	case err != nil:
 		return nil, false, err
 	default:
-		expiresAt := mergeRedeemExpiry(existing.ExpiresAt, in.ExpiresAt)
+		expiresAt := existing.ExpiresAt
+		if !existing.ExpiryOverridden {
+			expiresAt = mergeRedeemExpiry(existing.ExpiresAt, in.ExpiresAt)
+		}
 		communityAt := existing.CommunityVerifiedAt
 		if communityAt == nil && communityVerifiedTime(in.ReportedValidation, now) != nil {
 			communityAt = &now
@@ -285,6 +295,149 @@ ON CONFLICT(redeem_code_id, source_key) DO UPDATE SET
 		return nil, false, err
 	}
 	return existing, created, nil
+}
+
+// BrowseRedeemCodes returns one newest-first page for the human-facing
+// registry. It is deliberately separate from ListRedeemCodes, whose ascending
+// revision cursor is a synchronization change feed and must not be overloaded
+// with presentation semantics.
+func (d *DB) BrowseRedeemCodes(ctx context.Context, offset, limit int, history bool) ([]*RedeemCode, int64, int64, error) {
+	if offset < 0 {
+		offset = 0
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	now := time.Now().UTC()
+	tx, err := d.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	const historical = `validation IN ('expired', 'invalid') OR (expires_at IS NOT NULL AND expires_at <= ?)`
+	var activeTotal, historyTotal int64
+	if err := tx.QueryRowContext(ctx, `
+SELECT COALESCE(SUM(CASE WHEN NOT (`+historical+`) THEN 1 ELSE 0 END), 0),
+       COALESCE(SUM(CASE WHEN `+historical+` THEN 1 ELSE 0 END), 0)
+FROM redeem_codes`, now, now).Scan(&activeTotal, &historyTotal); err != nil {
+		return nil, 0, 0, err
+	}
+
+	predicate := `NOT (` + historical + `)`
+	if history {
+		predicate = historical
+	}
+	rows, err := tx.QueryContext(ctx, `
+SELECT id, fingerprint, code, normalized_code, channel, expires_at, validation,
+       propagation_state, local_verified_at, community_verified_at,
+       origin_instance_id, last_message, revision, first_seen_at, updated_at,
+       expiry_overridden
+FROM redeem_codes
+WHERE `+predicate+`
+ORDER BY first_seen_at DESC, id DESC
+LIMIT ? OFFSET ?`, now, limit, offset)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	entries := make([]*RedeemCode, 0, limit)
+	for rows.Next() {
+		entry, scanErr := scanRedeemCode(rows)
+		if scanErr != nil {
+			_ = rows.Close()
+			return nil, 0, 0, scanErr
+		}
+		entries = append(entries, entry)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, 0, 0, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, 0, 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, 0, 0, err
+	}
+	return entries, activeTotal, historyTotal, nil
+}
+
+// SetRedeemCodeExpiryOverride makes an administrator-selected expiry
+// authoritative on this node. A nil expiry means permanent. Subsequent source
+// observations are still retained, but cannot silently replace the override.
+func (d *DB) SetRedeemCodeExpiryOverride(ctx context.Context, fingerprint string, expiresAt *time.Time) (*RedeemCode, error) {
+	return d.updateRedeemCodeExpiryOverride(ctx, strings.TrimSpace(fingerprint), expiresAt, true)
+}
+
+// ClearRedeemCodeExpiryOverride restores the aggregate source-reported expiry.
+func (d *DB) ClearRedeemCodeExpiryOverride(ctx context.Context, fingerprint string) (*RedeemCode, error) {
+	return d.updateRedeemCodeExpiryOverride(ctx, strings.TrimSpace(fingerprint), nil, false)
+}
+
+func (d *DB) updateRedeemCodeExpiryOverride(ctx context.Context, fingerprint string, expiresAt *time.Time, override bool) (*RedeemCode, error) {
+	if fingerprint == "" {
+		return nil, errors.New("redeem code fingerprint required")
+	}
+	if expiresAt != nil {
+		utc := expiresAt.UTC()
+		expiresAt = &utc
+	}
+	tx, err := d.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	entry, err := getRedeemCodeByFingerprint(ctx, tx, fingerprint)
+	if err != nil {
+		return nil, err
+	}
+
+	effective := expiresAt
+	if !override {
+		var observations, permanent int64
+		if err := tx.QueryRowContext(ctx, `
+SELECT COUNT(*), COALESCE(SUM(CASE WHEN expires_at IS NULL THEN 1 ELSE 0 END), 0)
+FROM redeem_code_observations WHERE redeem_code_id = ?`, entry.ID).Scan(&observations, &permanent); err != nil {
+			return nil, err
+		}
+		switch {
+		case observations == 0:
+			effective = entry.ExpiresAt
+		case permanent > 0:
+			effective = nil
+		default:
+			var latest time.Time
+			if err := tx.QueryRowContext(ctx, `
+SELECT expires_at FROM redeem_code_observations
+WHERE redeem_code_id = ? AND expires_at IS NOT NULL
+ORDER BY expires_at DESC LIMIT 1`, entry.ID).Scan(&latest); err != nil {
+				return nil, err
+			}
+			effective = &latest
+		}
+	}
+	revision, err := nextRedeemRevision(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	if _, err := tx.ExecContext(ctx, `
+UPDATE redeem_codes
+SET expires_at = ?, expiry_overridden = ?, revision = ?, updated_at = ?
+WHERE id = ?`, nullableTime(effective), override, revision, now, entry.ID); err != nil {
+		return nil, fmt.Errorf("update redeem code expiry: %w", err)
+	}
+	updated, err := getRedeemCodeByID(ctx, tx, entry.ID)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return updated, nil
 }
 
 func nextRedeemRevision(ctx context.Context, tx *sql.Tx) (int64, error) {
@@ -368,7 +521,8 @@ func (d *DB) ListRedeemCodes(ctx context.Context, afterRevision int64, limit int
 	rows, err := d.QueryContext(ctx, `
 SELECT id, fingerprint, code, normalized_code, channel, expires_at, validation,
        propagation_state, local_verified_at, community_verified_at,
-       origin_instance_id, last_message, revision, first_seen_at, updated_at
+       origin_instance_id, last_message, revision, first_seen_at, updated_at,
+       expiry_overridden
 FROM redeem_codes WHERE `+where+` ORDER BY revision ASC LIMIT ?`, args...)
 	if err != nil {
 		return nil, afterRevision, err
@@ -395,7 +549,7 @@ func (d *DB) EnsureRedeemAttempts(ctx context.Context) error {
 INSERT OR IGNORE INTO redeem_attempts(redeem_code_id, account_id, status, created_at, updated_at)
 SELECT c.id, a.id, 'pending', ?, ?
 FROM redeem_codes c
-JOIN accounts a ON a.channel = c.channel
+JOIN accounts a ON a.channel = c.channel AND a.deletion_pending=0
 JOIN users u ON u.id = a.user_id AND u.status = 'active'
 WHERE c.validation NOT IN ('expired', 'invalid')
   AND (c.expires_at IS NULL OR c.expires_at > ?)`, now, now, now)
@@ -412,7 +566,7 @@ func (d *DB) DueRedeemAttemptAccountIDs(ctx context.Context) ([]int64, error) {
 SELECT DISTINCT a.account_id
 FROM redeem_attempts a
 JOIN redeem_codes c ON c.id = a.redeem_code_id
-JOIN accounts ac ON ac.id = a.account_id
+JOIN accounts ac ON ac.id = a.account_id AND ac.deletion_pending=0
 JOIN users u ON u.id = ac.user_id AND u.status = 'active'
 WHERE a.status IN ('pending', 'retryable')
   AND (a.retry_at IS NULL OR a.retry_at <= ?)
@@ -515,7 +669,8 @@ func (d *DB) RecoverRedeemWork(ctx context.Context) error {
 	now := time.Now().UTC()
 	_, err := d.ExecContext(ctx, `
 UPDATE redeem_attempts
-SET status = 'retryable', retry_at = ?, message = 'daemon restarted during attempt', updated_at = ?
+SET status = 'retryable', retry_at = ?, run_token = '', lease_until = NULL,
+    message = 'daemon restarted during attempt', updated_at = ?
 WHERE status = 'running'`, now, now)
 	if err != nil {
 		return err
@@ -525,6 +680,36 @@ UPDATE redeem_exchange_outbox
 SET status = 'pending', next_attempt_at = ?, last_error = 'daemon restarted during delivery', updated_at = ?
 WHERE status = 'sending'`, now, now)
 	return err
+}
+
+// RecoverExpiredRedeemAttempts requeues work whose owner disappeared without
+// completing or releasing its lease. Completion tokens prevent a late owner
+// from overwriting the subsequently retried result.
+func (d *DB) RecoverExpiredRedeemAttempts(ctx context.Context, now time.Time) ([]int64, error) {
+	now = now.UTC()
+	rows, err := d.writeQueryContext(ctx, `
+UPDATE redeem_attempts
+SET status = 'retryable', retry_at = ?, run_token = '', lease_until = NULL,
+    message = '兑换任务执行超时，已自动重新排队', updated_at = ?
+WHERE status = 'running' AND (lease_until IS NULL OR lease_until <= ?)
+RETURNING account_id`, now, now, now)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	seen := make(map[int64]struct{})
+	var accountIDs []int64
+	for rows.Next() {
+		var accountID int64
+		if err := rows.Scan(&accountID); err != nil {
+			return nil, err
+		}
+		if _, ok := seen[accountID]; !ok {
+			seen[accountID] = struct{}{}
+			accountIDs = append(accountIDs, accountID)
+		}
+	}
+	return accountIDs, rows.Err()
 }
 
 func (d *DB) NextRedeemAttempt(ctx context.Context) (*RedeemAttempt, error) {
@@ -545,6 +730,8 @@ func (d *DB) NextRedeemAttemptForAccounts(ctx context.Context, accountIDs []int6
 
 func (d *DB) nextRedeemAttempt(ctx context.Context, accountIDs []int64) (*RedeemAttempt, error) {
 	now := time.Now().UTC()
+	leaseUntil := now.Add(RedeemAttemptLeaseDuration)
+	runToken := uuid.NewString()
 	tx, err := d.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -555,7 +742,7 @@ SELECT a.id, a.redeem_code_id, a.account_id, ac.name, c.channel, c.code,
        c.fingerprint, c.expires_at, a.attempt_count
 FROM redeem_attempts a
 JOIN redeem_codes c ON c.id = a.redeem_code_id
-JOIN accounts ac ON ac.id = a.account_id
+JOIN accounts ac ON ac.id = a.account_id AND ac.deletion_pending=0
 JOIN users u ON u.id = ac.user_id AND u.status = 'active'
 WHERE a.status IN ('pending', 'retryable')
   AND (a.retry_at IS NULL OR a.retry_at <= ?)
@@ -582,8 +769,8 @@ WHERE a.status IN ('pending', 'retryable')
 	item.ExpiresAt = nullTimePtr(expires)
 	res, err := tx.ExecContext(ctx, `
 UPDATE redeem_attempts
-SET status = 'running', updated_at = ?
-WHERE id = ? AND status IN ('pending', 'retryable')`, now, item.ID)
+SET status = 'running', message = '', retry_at = NULL, run_token = ?, lease_until = ?, updated_at = ?
+WHERE id = ? AND status IN ('pending', 'retryable')`, runToken, leaseUntil, now, item.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -593,22 +780,27 @@ WHERE id = ? AND status IN ('pending', 'retryable')`, now, item.ID)
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
+	item.RunToken = runToken
+	item.LeaseUntil = leaseUntil
 	return &item, nil
 }
 
 // ReleaseRedeemAttempt returns a claimed attempt to the pending queue without
 // counting a game RPC attempt. It is used when an account changed to
 // ONLINE_ONLY between eligibility selection and processing.
-func (d *DB) ReleaseRedeemAttempt(ctx context.Context, attemptID int64, message string) error {
+func (d *DB) ReleaseRedeemAttempt(ctx context.Context, attemptID int64, runToken, message string, retryAt *time.Time) error {
+	if strings.TrimSpace(runToken) == "" {
+		return errors.New("redeem attempt run token required")
+	}
 	result, err := d.ExecContext(ctx, `
 UPDATE redeem_attempts
-SET status = 'pending', message = ?, retry_at = NULL, updated_at = ?
-WHERE id = ? AND status = 'running'`, strings.TrimSpace(message), time.Now().UTC(), attemptID)
+SET status = 'pending', message = ?, retry_at = ?, run_token = '', lease_until = NULL, updated_at = ?
+WHERE id = ? AND status = 'running' AND run_token = ?`, strings.TrimSpace(message), nullableTime(retryAt), time.Now().UTC(), attemptID, runToken)
 	if err != nil {
 		return err
 	}
 	if count, _ := result.RowsAffected(); count != 1 {
-		return errors.New("redeem attempt is not running")
+		return errors.New("redeem attempt lease is no longer active")
 	}
 	return nil
 }
@@ -628,7 +820,10 @@ WHERE account_id = ? AND status = 'retryable' AND retry_at > ?`, now, now, accou
 	return result.RowsAffected()
 }
 
-func (d *DB) CompleteRedeemAttempt(ctx context.Context, attemptID int64, status, message string, retryAt *time.Time) error {
+func (d *DB) CompleteRedeemAttempt(ctx context.Context, attemptID int64, runToken, status, message string, retryAt *time.Time) error {
+	if strings.TrimSpace(runToken) == "" {
+		return errors.New("redeem attempt run token required")
+	}
 	status = normalizeRedeemValidation(status)
 	if status == RedeemValidationPending {
 		return errors.New("terminal or retryable redeem status required")
@@ -646,13 +841,13 @@ func (d *DB) CompleteRedeemAttempt(ctx context.Context, attemptID int64, status,
 	result, err := tx.ExecContext(ctx, `
 UPDATE redeem_attempts
 SET status = ?, message = ?, retry_at = ?, attempt_count = attempt_count + 1,
-    attempted_at = ?, updated_at = ?
-WHERE id = ? AND status = 'running'`, status, strings.TrimSpace(message), nullableTime(retryAt), now, now, attemptID)
+    attempted_at = ?, run_token = '', lease_until = NULL, updated_at = ?
+WHERE id = ? AND status = 'running' AND run_token = ?`, status, strings.TrimSpace(message), nullableTime(retryAt), now, now, attemptID, runToken)
 	if err != nil {
 		return err
 	}
 	if count, _ := result.RowsAffected(); count != 1 {
-		return errors.New("redeem attempt is not running")
+		return errors.New("redeem attempt lease is no longer active")
 	}
 	current, err := getRedeemCodeByID(ctx, tx, codeID)
 	if err != nil {
@@ -884,10 +1079,11 @@ func (d *DB) NextRedeemOutbox(ctx context.Context) (*RedeemOutboxItem, error) {
 	}
 	defer func() { _ = tx.Rollback() }()
 	row := tx.QueryRowContext(ctx, `
-SELECT o.id, s.id, s.name, s.base_url, o.attempt_count,
-       c.id, c.fingerprint, c.code, c.normalized_code, c.channel, c.expires_at, c.validation,
-       c.propagation_state, c.local_verified_at, c.community_verified_at,
-       c.origin_instance_id, c.last_message, c.revision, c.first_seen_at, c.updated_at
+	SELECT o.id, s.id, s.name, s.base_url, o.attempt_count,
+	       c.id, c.fingerprint, c.code, c.normalized_code, c.channel, c.expires_at, c.validation,
+	       c.propagation_state, c.local_verified_at, c.community_verified_at,
+	       c.origin_instance_id, c.last_message, c.revision, c.first_seen_at, c.updated_at,
+	       c.expiry_overridden
 FROM redeem_exchange_outbox o
 JOIN redeem_sources s ON s.id = o.source_id AND s.enabled = 1 AND s.push_enabled = 1
 JOIN redeem_codes c ON c.id = o.redeem_code_id
@@ -896,11 +1092,13 @@ WHERE o.status = 'pending' AND (o.next_attempt_at IS NULL OR o.next_attempt_at <
   AND c.validation IN ('success', 'already_redeemed')
 ORDER BY o.id ASC LIMIT 1`, now, now)
 	var item RedeemOutboxItem
+	var expiryOverridden int
 	var expires, localVerified, communityVerified sql.NullTime
 	if err := row.Scan(&item.ID, &item.SourceID, &item.SourceName, &item.BaseURL, &item.AttemptCount,
 		&item.Code.ID, &item.Code.Fingerprint, &item.Code.Code, &item.Code.NormalizedCode, &item.Code.Channel,
 		&expires, &item.Code.Validation, &item.Code.PropagationState, &localVerified, &communityVerified,
-		&item.Code.OriginInstanceID, &item.Code.LastMessage, &item.Code.Revision, &item.Code.FirstSeenAt, &item.Code.UpdatedAt); err != nil {
+		&item.Code.OriginInstanceID, &item.Code.LastMessage, &item.Code.Revision, &item.Code.FirstSeenAt, &item.Code.UpdatedAt,
+		&expiryOverridden); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -909,6 +1107,7 @@ ORDER BY o.id ASC LIMIT 1`, now, now)
 	item.Code.ExpiresAt = nullTimePtr(expires)
 	item.Code.LocalVerifiedAt = nullTimePtr(localVerified)
 	item.Code.CommunityVerifiedAt = nullTimePtr(communityVerified)
+	item.Code.ExpiryOverridden = expiryOverridden != 0
 	res, err := tx.ExecContext(ctx, `UPDATE redeem_exchange_outbox SET status = 'sending', attempt_count = attempt_count + 1, updated_at = ? WHERE id = ? AND status = 'pending'`, now, item.ID)
 	if err != nil {
 		return nil, err
@@ -995,21 +1194,24 @@ func getRedeemCodeByID(ctx context.Context, tx *sql.Tx, id int64) (*RedeemCode, 
 const redeemCodeSelect = `
 SELECT id, fingerprint, code, normalized_code, channel, expires_at, validation,
        propagation_state, local_verified_at, community_verified_at,
-       origin_instance_id, last_message, revision, first_seen_at, updated_at
+       origin_instance_id, last_message, revision, first_seen_at, updated_at,
+       expiry_overridden
 FROM redeem_codes`
 
 func scanRedeemCode(scanner interface{ Scan(...any) error }) (*RedeemCode, error) {
 	var item RedeemCode
+	var expiryOverridden int
 	var expires, localVerified, communityVerified sql.NullTime
 	if err := scanner.Scan(&item.ID, &item.Fingerprint, &item.Code, &item.NormalizedCode,
 		&item.Channel, &expires, &item.Validation, &item.PropagationState, &localVerified,
 		&communityVerified, &item.OriginInstanceID, &item.LastMessage, &item.Revision,
-		&item.FirstSeenAt, &item.UpdatedAt); err != nil {
+		&item.FirstSeenAt, &item.UpdatedAt, &expiryOverridden); err != nil {
 		return nil, err
 	}
 	item.ExpiresAt = nullTimePtr(expires)
 	item.LocalVerifiedAt = nullTimePtr(localVerified)
 	item.CommunityVerifiedAt = nullTimePtr(communityVerified)
+	item.ExpiryOverridden = expiryOverridden != 0
 	return &item, nil
 }
 

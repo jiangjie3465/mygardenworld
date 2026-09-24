@@ -14,7 +14,8 @@ service AccountService {
   // persists the account, and starts its runner and automation.
   rpc CreateAccount(CreateAccountRequest) returns (CreateAccountResponse);
 
-  // Soft-delete: stops the runner and removes the row + sessions/policies.
+  // Persist deletion intent. Background work drains the runner and removes
+  // history in bounded batches. Completion is observed via workspace statuses.
   rpc DeleteAccount(DeleteAccountRequest) returns (DeleteAccountResponse);
 
   rpc ListAccounts(ListAccountsRequest) returns (ListAccountsResponse);
@@ -22,6 +23,10 @@ service AccountService {
   // Force a fresh username+password login for the account. Refreshes
   // session token, routeToken, gsHost. Daemon will rebuild the WS.
   rpc ConnectAccount(ConnectAccountRequest) returns (ConnectAccountResponse);
+
+  // Replace an existing iOS account's password after verifying its identity.
+  // Preserves its ID, policy, history and automation start/pause preference.
+  rpc ReauthenticateAccount(ReauthenticateAccountRequest) returns (ReauthenticateAccountResponse);
 
   // Starts a short-lived Alipay PC game-center QR authorization. The returned
   // qr_content must be rendered locally as a QR code and is never persisted.
@@ -37,6 +42,8 @@ message CreateAccountRequest {
   string password = 2;
   // Required: distribution channel we should impersonate. CHANNEL_IOS today.
   Channel channel = 3;
+  // Copy the complete saved policy before the first runner starts. Zero uses defaults.
+  int64 initial_policy_account_id = 4;
 }
 
 message CreateAccountResponse {
@@ -50,7 +57,10 @@ message DeleteAccountRequest {
   int64 id = 1;
 }
 
-message DeleteAccountResponse {}
+message DeleteAccountResponse {
+  // Accepted durable state, not a claim that physical cleanup has completed.
+  bool deletion_pending = 1;
+}
 
 message ListAccountsRequest {}
 
@@ -67,7 +77,22 @@ message ConnectAccountResponse {
   google.protobuf.Timestamp logged_in_at = 2;
 }
 
-message StartAlipayLoginRequest {}
+message ReauthenticateAccountRequest {
+  int64 id = 1;
+  string password = 2;
+}
+
+message ReauthenticateAccountResponse {
+  Account account = 1;
+  google.protobuf.Timestamp logged_in_at = 2;
+}
+
+message StartAlipayLoginRequest {
+  // Nonzero binds this authorization to an existing account's channel identity.
+  int64 account_id = 1;
+  // Used only for new accounts. Cannot be combined with account_id.
+  int64 initial_policy_account_id = 2;
+}
 
 message StartAlipayLoginResponse {
   string login_id = 1;

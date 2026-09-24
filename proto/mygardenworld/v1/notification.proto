@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package mygardenworld.v1;
+
+option java_multiple_files = true;
+option java_package = "com.mygardenworld.v1";
+
+// Notification settings belong to the authenticated system user, including
+// admins. No command accepts a user/account id or exposes stored credentials.
+service NotificationService {
+  rpc SaveNotificationSettings(SaveNotificationSettingsRequest) returns (SaveNotificationSettingsResponse);
+  rpc TestNotification(TestNotificationRequest) returns (TestNotificationResponse);
+}
+
+enum NotificationProvider {
+  NOTIFICATION_PROVIDER_UNSPECIFIED = 0;
+  NOTIFICATION_PROVIDER_CUSTOM = 1;
+  NOTIFICATION_PROVIDER_WECOM = 2;
+  NOTIFICATION_PROVIDER_DINGTALK = 3;
+  NOTIFICATION_PROVIDER_FEISHU = 4;
+}
+
+message SaveNotificationSettingsRequest {
+  bool enabled = 1;
+  // Absent retains the saved endpoint only for an unchanged provider;
+  // explicitly empty clears the endpoint and its signing key.
+  optional string endpoint = 2;
+  int32 cooldown_minutes = 3;
+  NotificationProvider provider = 4;
+  // Absent retains only when the endpoint/provider are unchanged. Empty clears.
+  // Only DingTalk and Feishu support signing; never returned to the browser.
+  optional string signing_secret = 5;
+}
+message SaveNotificationSettingsResponse {}
+message TestNotificationRequest {}
+message TestNotificationResponse { int64 delivery_id = 1; }
+
+// Read via the authenticated workspace WebSocket, never Connect queries.
+message LoadUserNotifications { int64 before_id = 1; }
+message UserNotificationSettings {
+  bool enabled = 1;
+  bool has_endpoint = 2;
+  int32 cooldown_minutes = 3;
+  NotificationProvider provider = 4;
+  bool has_signing_secret = 5;
+}
+message NotificationDelivery {
+  int64 id = 1;
+  string title = 2;
+  string status = 3;
+  int32 attempts = 4;
+  int64 created_ms = 5;
+  string last_error = 6;
+}
+message UserNotificationsView {
+  UserNotificationSettings settings = 1;
+  repeated NotificationDelivery deliveries = 2;
+  bool has_more = 3;
+  int64 next_before_id = 4;
+  int64 before_id = 5;
+  // Synthetic example serialized using the same contract as actual deliveries.
+  string custom_payload_example = 6;
+}

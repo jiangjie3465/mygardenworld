@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	pb "github.com/SilkageNet/mygardenworld/gen/mygardenworld/v1"
@@ -1157,6 +1158,22 @@ func TestBuildPlan_CustomerMinFlowerArtBypassedWhenRaceHoldsCustomerTask(t *test
 	p.AutomationEnabled = true
 	p.Order.Customer.Enabled = true
 	p.Order.Customer.MinFlowerArtCount = 3
+	// Unlike the historical piece-count preference, the explicit currency
+	// filter remains a hard gate during a race and must not reject the order.
+	exact := int64(3)
+	p.Order.Customer.ExactFloralCoin = &exact
+	filtered := BuildPlan(s, p, time.Now())
+	for _, operation := range filtered.Operations {
+		if operation.GoalID == GoalCustomerOrder && operation.Executable {
+			t.Fatalf("race bypassed exact reward filter: %+v", operation)
+		}
+	}
+	for _, demand := range filtered.Demands {
+		if demand.GoalID == GoalCustomerOrder {
+			t.Fatalf("filtered race order created demand: %+v", demand)
+		}
+	}
+	p.Order.Customer.ExactFloralCoin = nil
 
 	result := BuildPlan(s, p, time.Now())
 	for _, op := range result.Operations {
@@ -3298,10 +3315,10 @@ func TestBuildPlan_UnionLandHarvest(t *testing.T) {
 			if op.Kind != clientproto.RPCFmlLandHarvest.String() || !op.Executable || op.SyncOnly {
 				t.Fatalf("union land harvest op mismatch: %+v", op)
 			}
-			if len(op.LandIDs) != 1 || op.LandIDs[0] != 1 || op.Count != 1 {
+			if len(op.LandIDs) != 2 || op.LandIDs[0] != 1 || op.LandIDs[1] != 2 || op.Count != 2 {
 				t.Fatalf("union land harvest ids/count mismatch: %+v", op)
 			}
-			if !strings.Contains(op.Reason, "土地#1") || !strings.Contains(op.Reason, "×4") {
+			if !strings.Contains(op.Reason, "土地#1") || !strings.Contains(op.Reason, "×6") {
 				t.Fatalf("union land harvest reason should describe targets: %q", op.Reason)
 			}
 			return
@@ -3616,6 +3633,7 @@ func TestBuildPlan_UnionLandAutoPlantReplacesAfterHarvestCycle(t *testing.T) {
 						"2": now.Add(-70 * time.Minute).UnixMilli(),
 						"3": 0,
 						"4": 999,
+						"5": now.Add(-10 * time.Minute).UnixMilli(),
 					},
 				},
 			},
@@ -3688,8 +3706,9 @@ func TestBuildPlan_UnionLandAutoPlantReplacesHourly(t *testing.T) {
 						"0": 0,
 						"1": 23001,
 						"2": now.Add(-2 * time.Hour).UnixMilli(),
-						"3": 6,
+						"3": 0, // Current stock was emptied by harvest.
 						"4": 6,
+						"5": now.UnixMilli(),
 					},
 				},
 			},
@@ -3731,6 +3750,7 @@ func TestBuildPlan_UnionLandAutoPlantReplacesBelow11AfterSafeBoundary(t *testing
 						"2": now.Add(-70 * time.Minute).UnixMilli(),
 						"3": 0,
 						"4": 4,
+						"5": now.Add(-10 * time.Minute).UnixMilli(),
 					},
 					"2": map[string]any{"0": 0}, // empty
 				},
@@ -3952,8 +3972,9 @@ func TestBuildPlan_UnionDomainWaitsForObservedMembership(t *testing.T) {
 
 	result := BuildPlan(s, p, time.Now())
 	for _, op := range result.Operations {
-		if op.Category == CategoryUnion || op.Category == CategoryRace {
-			t.Fatalf("unobserved membership must gate every guild operation: %+v", op)
+		if (op.Category == CategoryUnion || op.Category == CategoryRace) &&
+			(op.Kind != clientproto.RPCFmlEnter.String() || !op.Executable) {
+			t.Fatalf("unobserved membership must allow only executable identity recovery: %+v", op)
 		}
 	}
 }
@@ -4315,6 +4336,12 @@ func TestBuildPlan_UnionFlowerTakeNoMatchDoesNotTake(t *testing.T) {
 }
 
 func TestBuildPlan_UnionFlowerTakeHourlyResync(t *testing.T) {
+	// This test advances a fresh snapshot by one minute/hour, not across a
+	// calendar reset. Freeze both state observation and planner clocks.
+	synctest.Test(t, testUnionFlowerTakeHourlyResync)
+}
+
+func testUnionFlowerTakeHourlyResync(t *testing.T) {
 	s := state.New()
 	synced := time.Now().UnixMilli()
 	applyMap(t, s, map[string]any{

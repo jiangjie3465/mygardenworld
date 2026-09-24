@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 7
+const currentSchemaVersion = 17
 
 var (
 	ErrUnversionedDatabase = errors.New("unversioned database is not supported")
@@ -237,12 +237,82 @@ ALTER TABLE redeem_sources DROP COLUMN invalid_count;
 	},
 	{
 		version: 7,
+		name:    "administrator redeem expiry overrides",
+		sql: `
+ALTER TABLE redeem_codes ADD COLUMN expiry_overridden INTEGER NOT NULL DEFAULT 0 CHECK(expiry_overridden IN (0, 1));
+CREATE INDEX idx_redeem_codes_browse ON redeem_codes(first_seen_at DESC, id DESC);
+`,
+	},
+	{
+		version: 8,
+		name:    "leased redeem attempts",
+		sql: `
+ALTER TABLE redeem_attempts ADD COLUMN run_token TEXT NOT NULL DEFAULT '';
+ALTER TABLE redeem_attempts ADD COLUMN lease_until DATETIME;
+CREATE INDEX idx_redeem_attempts_lease ON redeem_attempts(status, lease_until);
+`,
+	},
+	{
+		version: 9,
+		name:    "persistent account request safety",
+		sql: `
+CREATE TABLE account_request_safety (
+    account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+    last_race_delete_ms INTEGER NOT NULL DEFAULT 0 CHECK(last_race_delete_ms >= 0),
+    restricted_until_ms INTEGER NOT NULL DEFAULT 0 CHECK(restricted_until_ms >= 0),
+    restriction_code INTEGER NOT NULL DEFAULT 0 CHECK(restriction_code IN (0, 97777, 97778)),
+    restriction_attempts INTEGER NOT NULL DEFAULT 0 CHECK(restriction_attempts >= 0)
+);
+`,
+	},
+	{version: 10, name: "user-owned webhook notifications", sql: notificationMigrationSQL},
+	{version: 11, name: "notification providers and signing", sql: `
+ALTER TABLE user_notifications ADD COLUMN provider TEXT NOT NULL DEFAULT 'custom' CHECK(provider IN ('custom', 'wecom', 'dingtalk', 'feishu'));
+ALTER TABLE user_notifications ADD COLUMN signing_secret_enc TEXT NOT NULL DEFAULT '';
+ALTER TABLE user_notifications ADD COLUMN retry_after_ms INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE notification_outbox ADD COLUMN last_attempt_ms INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX idx_notification_outbox_attempt ON notification_outbox(user_id, last_attempt_ms);
+`},
+	{version: 12, name: "operator maintenance gate", sql: `
+CREATE TABLE daemon_maintenance (
+    id INTEGER PRIMARY KEY CHECK(id=1),
+    enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0,1)),
+    revision INTEGER NOT NULL DEFAULT 0 CHECK(revision>=0),
+    applied_revision INTEGER NOT NULL DEFAULT 0 CHECK(applied_revision>=0 AND applied_revision<=revision),
+    resume_enabled INTEGER NOT NULL DEFAULT 0 CHECK(resume_enabled IN (0,1))
+);
+INSERT INTO daemon_maintenance(id) VALUES(1);
+`},
+	{version: 13, name: "cross-RPC request protection and account cascade indexes", sql: `
+CREATE TABLE account_request_safety_v13 (
+    account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+    last_race_delete_ms INTEGER NOT NULL DEFAULT 0 CHECK(last_race_delete_ms >= 0),
+    restricted_until_ms INTEGER NOT NULL DEFAULT 0 CHECK(restricted_until_ms >= 0),
+    restriction_code INTEGER NOT NULL DEFAULT 0 CHECK(restriction_code IN (0, 5000, 97777, 97778)),
+    restriction_attempts INTEGER NOT NULL DEFAULT 0 CHECK(restriction_attempts >= 0)
+);
+INSERT INTO account_request_safety_v13 (account_id, last_race_delete_ms, restricted_until_ms, restriction_code, restriction_attempts)
+SELECT account_id, last_race_delete_ms, restricted_until_ms, restriction_code, restriction_attempts FROM account_request_safety;
+DROP TABLE account_request_safety;
+ALTER TABLE account_request_safety_v13 RENAME TO account_request_safety;
+CREATE INDEX IF NOT EXISTS idx_redeem_attempts_account ON redeem_attempts(account_id);
+CREATE INDEX IF NOT EXISTS idx_notification_incidents_account ON notification_incidents(account_id);
+CREATE INDEX IF NOT EXISTS idx_notification_outbox_account ON notification_outbox(account_id);
+`},
+	{version: 14, name: "bounded fresh-session recovery reservations", sql: `
+ALTER TABLE account_request_safety ADD COLUMN fresh_login_attempted INTEGER NOT NULL DEFAULT 0 CHECK(fresh_login_attempted IN (0,1));
+ALTER TABLE account_request_safety ADD COLUMN last_fresh_login_ms INTEGER NOT NULL DEFAULT 0 CHECK(last_fresh_login_ms>=0);
+`},
+	{version: 15, name: "durable bounded account deletion", apply: migrateAccountDeletion},
+	{version: 16, name: "account deletion progress independent of history", sql: accountDeletionProgressMigration},
+	{
+		version: 17,
 		name:    "mobile token sessions",
-		apply:   migrateMobileTokensV7,
+		apply:   migrateMobileTokensV17,
 	},
 }
 
-func migrateMobileTokensV7(ctx context.Context, tx *sql.Tx) error {
+func migrateMobileTokensV17(ctx context.Context, tx *sql.Tx) error {
 	var tableCount int
 	if err := tx.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'refresh_tokens'`,
@@ -309,6 +379,12 @@ func applyMigrations(ctx context.Context, db *sql.DB) error {
 		}
 		if !empty {
 			return fmt.Errorf("%w; this breaking release only accepts versioned databases; use `gardend reset-data --yes` to create the v%d baseline", ErrUnversionedDatabase, currentSchemaVersion)
+		}
+		// WAL initialization already materialized an empty database header.
+		// Rebuild that empty file to persist pointer maps before creating tables.
+		// Existing files are converted at daemon startup outside migrations.
+		if _, err := db.ExecContext(ctx, "PRAGMA auto_vacuum=INCREMENTAL; VACUUM"); err != nil {
+			return fmt.Errorf("enable incremental vacuum: %w", err)
 		}
 	}
 	if version > currentSchemaVersion {

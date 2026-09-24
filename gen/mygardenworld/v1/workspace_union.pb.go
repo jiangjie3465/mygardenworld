@@ -175,21 +175,25 @@ func (x *UnionView) GetVideoBuild() *VideoActionStatusView {
 }
 
 type FmlRaceView struct {
-	state        protoimpl.MessageState `protogen:"open.v1"`
-	Observed     bool                   `protobuf:"varint,1,opt,name=observed,proto3" json:"observed,omitempty"`
-	BatchActive  bool                   `protobuf:"varint,2,opt,name=batch_active,json=batchActive,proto3" json:"batch_active,omitempty"`
-	Taken        *FmlRaceTaken          `protobuf:"bytes,3,opt,name=taken,proto3" json:"taken,omitempty"`
-	Tasks        []*FmlRaceTask         `protobuf:"bytes,4,rep,name=tasks,proto3" json:"tasks,omitempty"`
-	BatchStartMs int64                  `protobuf:"varint,5,opt,name=batch_start_ms,json=batchStartMs,proto3" json:"batch_start_ms,omitempty"`
-	BatchEndMs   int64                  `protobuf:"varint,6,opt,name=batch_end_ms,json=batchEndMs,proto3" json:"batch_end_ms,omitempty"`
-	BatchStatus  int32                  `protobuf:"varint,7,opt,name=batch_status,json=batchStatus,proto3" json:"batch_status,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Planner-derived explanation of automatic deletion gates.
+	AutoDeleteStatus string `protobuf:"bytes,17,opt,name=auto_delete_status,json=autoDeleteStatus,proto3" json:"auto_delete_status,omitempty"`
+	// Planner/runtime-derived upgrade gates, including the paid-attempt fence.
+	AutoUpgradeStatus string         `protobuf:"bytes,18,opt,name=auto_upgrade_status,json=autoUpgradeStatus,proto3" json:"auto_upgrade_status,omitempty"`
+	Observed          bool           `protobuf:"varint,1,opt,name=observed,proto3" json:"observed,omitempty"`
+	BatchActive       bool           `protobuf:"varint,2,opt,name=batch_active,json=batchActive,proto3" json:"batch_active,omitempty"`
+	Taken             *FmlRaceTaken  `protobuf:"bytes,3,opt,name=taken,proto3" json:"taken,omitempty"`
+	Tasks             []*FmlRaceTask `protobuf:"bytes,4,rep,name=tasks,proto3" json:"tasks,omitempty"`
+	BatchStartMs      int64          `protobuf:"varint,5,opt,name=batch_start_ms,json=batchStartMs,proto3" json:"batch_start_ms,omitempty"`
+	BatchEndMs        int64          `protobuf:"varint,6,opt,name=batch_end_ms,json=batchEndMs,proto3" json:"batch_end_ms,omitempty"`
+	BatchStatus       int32          `protobuf:"varint,7,opt,name=batch_status,json=batchStatus,proto3" json:"batch_status,omitempty"`
 	// Local ms when task pool (NS25 field 114) was last applied.
 	TasksSyncedAtMs int64 `protobuf:"varint,8,opt,name=tasks_synced_at_ms,json=tasksSyncedAtMs,proto3" json:"tasks_synced_at_ms,omitempty"`
-	// True after NS25 field 110 (usr rcd) has been observed for task quota.
+	// True after the current batch's finished count is observed in NS25 110/116.
 	TaskQuotaObserved bool `protobuf:"varint,9,opt,name=task_quota_observed,json=taskQuotaObserved,proto3" json:"task_quota_observed,omitempty"`
 	// Finished race tasks this batch (IFmlRaceUsrRcd.fTaskNum).
 	FinishedTaskNum int32 `protobuf:"varint,10,opt,name=finished_task_num,json=finishedTaskNum,proto3" json:"finished_task_num,omitempty"`
-	// Total race task quota: c_fmlRace(raceLvl).taskNum (甲=18, 乙=15, …).
+	// Total race task quota: c_fmlRace(raceLvl).taskNum + purchased buyTaskNum.
 	TotalTaskNum int32 `protobuf:"varint,11,opt,name=total_task_num,json=totalTaskNum,proto3" json:"total_task_num,omitempty"`
 	// Guild race tier used for total_task_num (甲=4, 乙=3, 丙=2, 丁=1).
 	RaceLvl int32 `protobuf:"varint,12,opt,name=race_lvl,json=raceLvl,proto3" json:"race_lvl,omitempty"`
@@ -233,6 +237,20 @@ func (x *FmlRaceView) ProtoReflect() protoreflect.Message {
 // Deprecated: Use FmlRaceView.ProtoReflect.Descriptor instead.
 func (*FmlRaceView) Descriptor() ([]byte, []int) {
 	return file_mygardenworld_v1_workspace_union_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *FmlRaceView) GetAutoDeleteStatus() string {
+	if x != nil {
+		return x.AutoDeleteStatus
+	}
+	return ""
+}
+
+func (x *FmlRaceView) GetAutoUpgradeStatus() string {
+	if x != nil {
+		return x.AutoUpgradeStatus
+	}
+	return ""
 }
 
 func (x *FmlRaceView) GetObserved() bool {
@@ -364,10 +382,15 @@ type FmlRaceTask struct {
 	TakeSkipReason string `protobuf:"bytes,10,opt,name=take_skip_reason,json=takeSkipReason,proto3" json:"take_skip_reason,omitempty"`
 	// Observed target/progress from IFmlRaceTask fields 7 and 8.
 	// Positive finish_cnt unambiguously means this pool task was advanced.
-	TargetCnt     int32 `protobuf:"varint,11,opt,name=target_cnt,json=targetCnt,proto3" json:"target_cnt,omitempty"`
-	FinishCnt     int32 `protobuf:"varint,12,opt,name=finish_cnt,json=finishCnt,proto3" json:"finish_cnt,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	TargetCnt int32 `protobuf:"varint,11,opt,name=target_cnt,json=targetCnt,proto3" json:"target_cnt,omitempty"`
+	FinishCnt int32 `protobuf:"varint,12,opt,name=finish_cnt,json=finishCnt,proto3" json:"finish_cnt,omitempty"`
+	// Manual deletion is independent from the automatic low-score policy.
+	// It still requires a fresh task pool, an unclaimed task, and the current
+	// member position's c_fmlPos.p_raceDelete permission.
+	DeleteAllowed       bool   `protobuf:"varint,13,opt,name=delete_allowed,json=deleteAllowed,proto3" json:"delete_allowed,omitempty"`
+	DeleteBlockedReason string `protobuf:"bytes,14,opt,name=delete_blocked_reason,json=deleteBlockedReason,proto3" json:"delete_blocked_reason,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *FmlRaceTask) Reset() {
@@ -482,6 +505,20 @@ func (x *FmlRaceTask) GetFinishCnt() int32 {
 		return x.FinishCnt
 	}
 	return 0
+}
+
+func (x *FmlRaceTask) GetDeleteAllowed() bool {
+	if x != nil {
+		return x.DeleteAllowed
+	}
+	return false
+}
+
+func (x *FmlRaceTask) GetDeleteBlockedReason() string {
+	if x != nil {
+		return x.DeleteBlockedReason
+	}
+	return ""
 }
 
 type FmlRaceTaken struct {
@@ -610,11 +647,12 @@ type FmlLandView struct {
 	Level       int32 `protobuf:"varint,2,opt,name=level,proto3" json:"level,omitempty"`
 	FlowerId    int32 `protobuf:"varint,3,opt,name=flower_id,json=flowerId,proto3" json:"flower_id,omitempty"`
 	StartTimeMs int64 `protobuf:"varint,4,opt,name=start_time_ms,json=startTimeMs,proto3" json:"start_time_ms,omitempty"`
-	// Protocol matureFlwCnt; often stale until the client UI recalculates.
+	// Protocol matureFlwCnt: current unclaimed stock before elapsed production.
 	MatureFlowerCount int32 `protobuf:"varint,5,opt,name=mature_flower_count,json=matureFlowerCount,proto3" json:"mature_flower_count,omitempty"`
-	HarvestedCount    int32 `protobuf:"varint,6,opt,name=harvested_count,json=harvestedCount,proto3" json:"harvested_count,omitempty"`
-	LastCalcTimeMs    int64 `protobuf:"varint,7,opt,name=last_calc_time_ms,json=lastCalcTimeMs,proto3" json:"last_calc_time_ms,omitempty"`
-	// Unclaimed mature flowers (max of protocol delta and startTime+c_fmlLandLvl).
+	// Historical harvestedFlwCnt, independent of current stock.
+	HarvestedCount int32 `protobuf:"varint,6,opt,name=harvested_count,json=harvestedCount,proto3" json:"harvested_count,omitempty"`
+	LastCalcTimeMs int64 `protobuf:"varint,7,opt,name=last_calc_time_ms,json=lastCalcTimeMs,proto3" json:"last_calc_time_ms,omitempty"`
+	// Current stock plus production since lastCalcTime (or startTime), capped by stock_cap.
 	PendingHarvest int32 `protobuf:"varint,8,opt,name=pending_harvest,json=pendingHarvest,proto3" json:"pending_harvest,omitempty"`
 	// c_fmlLandLvl.stock for this land level; 0 when unknown.
 	StockCap int32 `protobuf:"varint,9,opt,name=stock_cap,json=stockCap,proto3" json:"stock_cap,omitempty"`
@@ -782,8 +820,10 @@ const file_mygardenworld_v1_workspace_union_proto_rawDesc = "" +
 	"\x15member_position_label\x18\f \x01(\tR\x13memberPositionLabel\x12.\n" +
 	"\x13race_delete_allowed\x18\r \x01(\bR\x11raceDeleteAllowed\x12H\n" +
 	"\vvideo_build\x18\x0e \x01(\v2'.mygardenworld.v1.VideoActionStatusViewR\n" +
-	"videoBuild\"\xe2\x04\n" +
-	"\vFmlRaceView\x12\x1a\n" +
+	"videoBuild\"\xc0\x05\n" +
+	"\vFmlRaceView\x12,\n" +
+	"\x12auto_delete_status\x18\x11 \x01(\tR\x10autoDeleteStatus\x12.\n" +
+	"\x13auto_upgrade_status\x18\x12 \x01(\tR\x11autoUpgradeStatus\x12\x1a\n" +
 	"\bobserved\x18\x01 \x01(\bR\bobserved\x12!\n" +
 	"\fbatch_active\x18\x02 \x01(\bR\vbatchActive\x124\n" +
 	"\x05taken\x18\x03 \x01(\v2\x1e.mygardenworld.v1.FmlRaceTakenR\x05taken\x123\n" +
@@ -801,7 +841,7 @@ const file_mygardenworld_v1_workspace_union_proto_rawDesc = "" +
 	"\x05score\x18\r \x01(\x05R\x05score\x12%\n" +
 	"\x0escore_observed\x18\x0e \x01(\bR\rscoreObserved\x12\x12\n" +
 	"\x04rank\x18\x0f \x01(\x05R\x04rank\x12#\n" +
-	"\rrank_observed\x18\x10 \x01(\bR\frankObserved\"\xfe\x02\n" +
+	"\rrank_observed\x18\x10 \x01(\bR\frankObserved\"\xd9\x03\n" +
 	"\vFmlRaceTask\x12\x13\n" +
 	"\x05ms_id\x18\x01 \x01(\x03R\x04msId\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\x05R\x06taskId\x12\x1d\n" +
@@ -820,7 +860,9 @@ const file_mygardenworld_v1_workspace_union_proto_rawDesc = "" +
 	"\n" +
 	"target_cnt\x18\v \x01(\x05R\ttargetCnt\x12\x1d\n" +
 	"\n" +
-	"finish_cnt\x18\f \x01(\x05R\tfinishCnt\"\xb9\x02\n" +
+	"finish_cnt\x18\f \x01(\x05R\tfinishCnt\x12%\n" +
+	"\x0edelete_allowed\x18\r \x01(\bR\rdeleteAllowed\x122\n" +
+	"\x15delete_blocked_reason\x18\x0e \x01(\tR\x13deleteBlockedReason\"\xb9\x02\n" +
 	"\fFmlRaceTaken\x12\x19\n" +
 	"\bhas_task\x18\x01 \x01(\bR\ahasTask\x12\x1c\n" +
 	"\n" +

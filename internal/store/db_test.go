@@ -21,7 +21,7 @@ func TestOpenCreatesVersionedBaseline(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	version, err := databaseVersion(ctx, db.DB)
+	version, err := databaseVersion(ctx, db.writer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestOpenMigratesVersionThreeThroughRedeemSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := previous.ExecContext(ctx, `CREATE TABLE accounts (id INTEGER PRIMARY KEY)`); err != nil {
+	if _, err := previous.ExecContext(ctx, migrations[0].sql); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := previous.ExecContext(ctx, `PRAGMA user_version = 3`); err != nil {
@@ -79,7 +79,7 @@ func TestOpenMigratesVersionThreeThroughRedeemSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	if version, err := databaseVersion(ctx, db.DB); err != nil || version != currentSchemaVersion {
+	if version, err := databaseVersion(ctx, db.writer); err != nil || version != currentSchemaVersion {
 		t.Fatalf("schema version=%d err=%v, want %d", version, err, currentSchemaVersion)
 	}
 	var column string
@@ -96,9 +96,15 @@ func TestOpenMigratesVersionThreeThroughRedeemSchema(t *testing.T) {
 	if retiredColumns != 0 {
 		t.Fatalf("retired redeem source counters=%d, want 0", retiredColumns)
 	}
+	if err := db.QueryRowContext(ctx, `SELECT name FROM pragma_table_info('redeem_codes') WHERE name = 'expiry_overridden'`).Scan(&column); err != nil {
+		t.Fatalf("redeem expiry override migration: %v", err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT name FROM pragma_table_info('redeem_attempts') WHERE name = 'lease_until'`).Scan(&column); err != nil {
+		t.Fatalf("redeem attempt lease migration: %v", err)
+	}
 }
 
-func TestOpenMigratesVersionSixRefreshTokensToMobileSessions(t *testing.T) {
+func TestOpenMigratesVersionSixteenRefreshTokensToMobileSessions(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "garden.db")
 	previous, err := sql.Open("sqlite", "file:"+path)
@@ -117,7 +123,7 @@ func TestOpenMigratesVersionSixRefreshTokensToMobileSessions(t *testing.T) {
 		`CREATE INDEX idx_refresh_user ON refresh_tokens(user_id)`,
 		`INSERT INTO users(id, username) VALUES (1, 'owner')`,
 		`INSERT INTO refresh_tokens(user_id, token_hash, expires_at) VALUES (1, 'legacy-hash', '2999-01-01 00:00:00')`,
-		`PRAGMA user_version = 6`,
+		`PRAGMA user_version = 16`,
 	} {
 		if _, err := previous.ExecContext(ctx, statement); err != nil {
 			_ = previous.Close()
@@ -133,13 +139,13 @@ func TestOpenMigratesVersionSixRefreshTokensToMobileSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	if version, err := databaseVersion(ctx, db.DB); err != nil || version != currentSchemaVersion {
+	if version, err := databaseVersion(ctx, db.writer); err != nil || version != currentSchemaVersion {
 		t.Fatalf("schema version=%d err=%v, want %d", version, err, currentSchemaVersion)
 	}
 	for _, column := range []string{"client_type", "device_id", "device_name", "last_used_at", "created_at"} {
 		var name string
 		if err := db.QueryRowContext(ctx, `SELECT name FROM pragma_table_info('refresh_tokens') WHERE name = ?`, column).Scan(&name); err != nil {
-			t.Fatalf("refresh_tokens column %s after v7 migration: %v", column, err)
+			t.Fatalf("refresh_tokens column %s after v17 migration: %v", column, err)
 		}
 	}
 	var clientType, deviceID string
@@ -169,6 +175,7 @@ func TestOpenMigratesVersionFiveRedeemSourcesWithoutLosingConfiguration(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
+	removeAccountDeletionSchema(t, baseline.writer)
 	if err := baseline.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -178,6 +185,14 @@ func TestOpenMigratesVersionFiveRedeemSourcesWithoutLosingConfiguration(t *testi
 		t.Fatal(err)
 	}
 	for _, statement := range []string{
+		`DROP TABLE daemon_maintenance`,
+		`DROP TABLE account_request_safety`,
+		`DROP TABLE notification_outbox; DROP TABLE notification_incidents; DROP TABLE user_notifications`,
+		`DROP INDEX idx_redeem_attempts_lease`,
+		`ALTER TABLE redeem_attempts DROP COLUMN lease_until`,
+		`ALTER TABLE redeem_attempts DROP COLUMN run_token`,
+		`DROP INDEX idx_redeem_codes_browse`,
+		`ALTER TABLE redeem_codes DROP COLUMN expiry_overridden`,
 		`ALTER TABLE redeem_sources ADD COLUMN accepted_count INTEGER NOT NULL DEFAULT 0 CHECK(accepted_count >= 0)`,
 		`ALTER TABLE redeem_sources ADD COLUMN invalid_count INTEGER NOT NULL DEFAULT 0 CHECK(invalid_count >= 0)`,
 		`INSERT INTO redeem_sources(name, type, base_url, channel, accepted_count, invalid_count) VALUES ('source', 'custom_http', 'https://example.test/codes.json', 'ios', 7, 2)`,
@@ -197,7 +212,7 @@ func TestOpenMigratesVersionFiveRedeemSourcesWithoutLosingConfiguration(t *testi
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	if version, err := databaseVersion(ctx, db.DB); err != nil || version != currentSchemaVersion {
+	if version, err := databaseVersion(ctx, db.writer); err != nil || version != currentSchemaVersion {
 		t.Fatalf("schema version=%d err=%v, want %d", version, err, currentSchemaVersion)
 	}
 	var name string
@@ -210,6 +225,72 @@ func TestOpenMigratesVersionFiveRedeemSourcesWithoutLosingConfiguration(t *testi
 	}
 	if retiredColumns != 0 {
 		t.Fatalf("retired redeem source counters=%d, want 0", retiredColumns)
+	}
+}
+
+func TestOpenMigratesVersionSixRedeemCodesWithoutLosingData(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "garden.db")
+	baseline, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := baseline.RedeemInstanceID(ctx); err != nil {
+		_ = baseline.Close()
+		t.Fatal(err)
+	}
+	expires := time.Now().UTC().Add(time.Hour)
+	created, _, err := baseline.UpsertRedeemCode(ctx, RedeemCodeInput{
+		Code: "PRESERVED", Channel: "ios", ExpiresAt: &expires, SourceKey: "test:migration",
+	})
+	if err != nil {
+		_ = baseline.Close()
+		t.Fatal(err)
+	}
+	removeAccountDeletionSchema(t, baseline.writer)
+	if err := baseline.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	previous, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`DROP TABLE daemon_maintenance`,
+		`DROP TABLE account_request_safety`,
+		`DROP TABLE notification_outbox; DROP TABLE notification_incidents; DROP TABLE user_notifications`,
+		`DROP INDEX idx_redeem_attempts_lease`,
+		`ALTER TABLE redeem_attempts DROP COLUMN lease_until`,
+		`ALTER TABLE redeem_attempts DROP COLUMN run_token`,
+		`DROP INDEX idx_redeem_codes_browse`,
+		`ALTER TABLE redeem_codes DROP COLUMN expiry_overridden`,
+		`PRAGMA user_version = 6`,
+	} {
+		if _, err := previous.ExecContext(ctx, statement); err != nil {
+			_ = previous.Close()
+			t.Fatal(err)
+		}
+	}
+	if err := previous.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	migrated, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = migrated.Close() }()
+	entries, _, err := migrated.ListRedeemCodes(ctx, 0, 10, true, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Fingerprint != created.Fingerprint {
+		t.Fatalf("migrated redeem entries=%+v", entries)
+	}
+	entry := entries[0]
+	if entry.Code != "PRESERVED" || entry.ExpiryOverridden || entry.ExpiresAt == nil || !entry.ExpiresAt.Equal(expires) {
+		t.Fatalf("migrated redeem code=%+v", entry)
 	}
 }
 

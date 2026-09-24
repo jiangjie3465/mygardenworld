@@ -84,6 +84,7 @@ type orderState struct {
 }
 
 type unionState struct {
+	lastConfirmedFmlID          int32
 	fmlBuild                    FmlBuildView
 	fmlLandObserved             bool
 	fmlLands                    map[int32]*FmlLandView
@@ -170,6 +171,7 @@ type assetState struct {
 	pearlEnemies             map[int64]int64
 	pearlEnemiesObserved     bool
 	pearlHireFailedUntil     map[int64]int64
+	pearlHireSkippedUIDs     map[int64]struct{}
 	pearlHireSessionLocked   bool
 	pearlHireLockReason      string
 	pearlHireTicketUsedDayID int32
@@ -187,6 +189,7 @@ type assetState struct {
 	benefitBoxUTimeMs        int64
 	benefitBoxObserved       bool
 	zoo                      ZooView
+	zooFoodUsableLimits      map[int32]int32
 	zooPets                  map[int32]*ZooPetView
 	zooLogs                  map[string]*ZooLogView
 	zooSouvenirs             map[int32]*ZooSouvenirView
@@ -201,6 +204,7 @@ type assetState struct {
 }
 
 type hooksState struct {
+	onRaceChange      func()
 	onChange          func(changed []LandChange)
 	onResourceChange  func(ResourceSnapshot)
 	onInventoryChange func(InventorySnapshot)

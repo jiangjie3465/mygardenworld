@@ -126,6 +126,31 @@ message AccountStatus {
   // Last-known game-server idx. This is included in the pushed runtime view
   // so the Web UI does not need to re-list accounts after the first login.
   int32 gs_idx = 26;
+  bool deletion_pending = 27;
+  bool deletion_failed = 28;
+  AccountDeletionProgress deletion_progress = 29;
+}
+
+// Owned-account cleanup diagnostics, independent of the history being deleted.
+// Counts include only committed batches since tracking_started_ms (older
+// releases did not count progress). No percentage or completion ETA is implied.
+message AccountDeletionProgress {
+  int64 tracking_started_ms = 1;
+  int64 removed_rows = 2;
+  int64 last_progress_ms = 3;
+  string phase = 4;
+  int64 attempt_ms = 5;
+  // Allowlisted diagnostic category, never raw SQL or filesystem paths.
+  string error_kind = 6;
+  int64 retry_at_ms = 7;
+  int32 failures = 8;
+  int32 batch_size = 9;
+  int64 wait_ms = 10;
+  // Execution and commit sample. Zero when not sampled (including a completed
+  // batch loaded after restart: its commit duration was not yet known in-tx).
+  int64 work_ms = 11;
+  // No committed progress for at least 15 minutes since tracking began.
+  bool stalled = 12;
 }
 
 message RunnerDiagnostics {
@@ -161,6 +186,10 @@ message PendingTaskView {
   TaskExecutionFeature execution_feature = 10;
   // False means the task stays pending because no safe protocol path exists.
   bool auto_completion_supported = 11;
+  // Ordinary whole-order reward; absent means not applicable or unknown.
+  optional int64 floral_coin_reward = 12;
+  // Planner-owned explanation when an otherwise visible order is filtered out.
+  string automation_skip_reason = 13;
 }
 
 enum TaskExecutionFeature {

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	pb "github.com/SilkageNet/mygardenworld/gen/mygardenworld/v1"
-	"github.com/SilkageNet/mygardenworld/internal/auth"
 	"github.com/SilkageNet/mygardenworld/internal/automation"
 	"github.com/SilkageNet/mygardenworld/internal/runner"
 	"github.com/SilkageNet/mygardenworld/internal/state"
@@ -18,11 +17,11 @@ import (
 )
 
 func (svc *Services) accountStatuses(ctx context.Context) ([]*pb.AccountStatus, error) {
-	var userID int64
-	if !auth.IsAdmin(ctx) {
-		userID = auth.UserIDFromContext(ctx)
+	userID, err := requireUserID(ctx)
+	if err != nil {
+		return nil, err
 	}
-	accs, err := svc.DB.ListAccounts(ctx, userID)
+	accs, err := svc.DB.ListAccountsIncludingDeleting(ctx, userID)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -39,9 +38,30 @@ func (svc *Services) accountStatuses(ctx context.Context) ([]*pb.AccountStatus, 
 
 func (svc *Services) statusFor(ctx context.Context, acc *store.Account) (*pb.AccountStatus, error) {
 	out := &pb.AccountStatus{
-		AccountId:   acc.ID,
-		AccountName: acc.Name,
-		GsIdx:       acc.GsIdx,
+		AccountId:       acc.ID,
+		AccountName:     acc.Name,
+		GsIdx:           acc.GsIdx,
+		DeletionPending: acc.DeletionPending,
+		DeletionFailed:  acc.DeletionFailed,
+	}
+	if acc.DeletionPending {
+		p, err := svc.DB.AccountDeletionProgress(ctx, acc.ID)
+		if err != nil {
+			return nil, mapErr(err)
+		}
+		if svc.Manager != nil {
+			if a, ok := svc.Manager.LatestDeletionAttempt(acc.ID); ok && a.AttemptMS >= p.AttemptMS {
+				p.DeletionAttempt = a
+			}
+		}
+		out.DeletionFailed = p.ErrorKind != ""
+		out.DeletionProgress = &pb.AccountDeletionProgress{
+			TrackingStartedMs: p.TrackingStartedMS, RemovedRows: p.RemovedRows, LastProgressMs: p.LastProgressMS,
+			Phase: p.Phase, AttemptMs: p.AttemptMS, ErrorKind: p.ErrorKind, RetryAtMs: p.RetryAtMS,
+			Failures: int32(p.Failures), BatchSize: int32(p.BatchSize), WaitMs: p.WaitMS, WorkMs: p.WorkMS,
+			Stalled: max(p.TrackingStartedMS, p.LastProgressMS) > 0 && time.Now().UnixMilli()-max(p.TrackingStartedMS, p.LastProgressMS) >= int64((15*time.Minute)/time.Millisecond),
+		}
+		return out, nil
 	}
 	var r *runner.Runner
 	if svc.Manager != nil {
@@ -385,6 +405,10 @@ func buildUnionView(model *accountReadModel) *pb.UnionView {
 				Cultivate: model.policy.GetPlant().GetCultivate().GetEnabled(),
 			},
 		),
+	}
+	applyRaceRequestSafety(resp.Race, model.policy.GetUnion().GetRace(), model.diag)
+	if model.runner != nil {
+		resp.Race.AutoUpgradeStatus = model.runner.RaceUpgradeStatus(now)
 	}
 	return resp
 }

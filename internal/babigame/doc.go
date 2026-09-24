@@ -14,6 +14,32 @@
 //   - HTTPS gateway calls
 //   - WebSocket event/RPC stream
 //
+// The client SDK LOGIN constants identify 902049 as ip_login_risk, 902050
+// as ip_ban, 902051 as ip_frequency, 902052 as rate_limit, and 902053 as
+// sdk_acc_ban. These are explicit login refusals, not transport failures.
+// GameLoginError exposes only numeric diagnostics; a JSON code of 302 is
+// not an HTTP redirect and its URL must not be followed to bypass refusal.
+// No observed evidence establishes a safe account count or cooldown duration.
+// Unknown business refusals, including the observed 902054, also stop automatic
+// authentication retries without claiming an unobserved risk/ban meaning.
+//
+// The authorized 187 mini-game and 450.0.15 web SDK add session1Cipher support:
+// game/login uses mdSession1 from SDK options when enabled and present, or a
+// local "s1" + 17 random characters + millisecond timestamp otherwise. This is
+// distinct from the account SDK's session1. Both supported channels pass the
+// common session1/uuid/lang/appInfo filter after building their signed payload.
+// Native startup must consume the UUID in queryPackageConfig's launch URL and
+// the subsequent queryInitParams response before password authentication.
+// Alipay instead calls /pack/init/packageName/cn.hysj.zfb.minigame with the
+// observed executable version 450.0.15, then consumes userParams for UUID,
+// session options and YXT channel routing before exchanging the web grant.
+// A same-input comparison on 2026-09-23 routed 412.0.4 to aud-zfb and 450.0.15
+// to prod. The returned SDK entry gameVersion (2.2.209) must not overwrite
+// the executable version sent in appInfo or GW/GS login requests.
+// Read-only observations on 2026-09-23 found session1Cipher=1 with no mdSession1
+// in the iOS init response; random UUIDs were rejected with "params is null".
+// The meaning of 902054 and a causal link to this SDK change remain unverified.
+//
 // # Namespace Reference
 //
 // Server responses carry a "v" field containing namespace-keyed data:
@@ -115,16 +141,28 @@
 // Automatic labor hiring uses only observed ticket-gated state:
 //
 //	24.1[]       friend relations; a full 24.0+24.1 replaces, relation-only deltas merge
-//	28.5[]       opponent summaries keyed by exact int64 UID, including level
+//	28.5[]       opponent summaries keyed by exact int64 UID; IOppt.lvl is field 4
 //	115.1.5      enemy UID -> event timestamp (incremental map; null entry deletes)
 //	115.5        candidate UID -> last/current labor end timestamp (incremental subset)
 //	115.6[]      recommendation UID list (whole-list replacement)
 //
-// Candidate summaries and hire states are trusted for 30 seconds. A contested
-// UID is cooled for 60 seconds. `pearlPlace.hire` must carry the exact observed
+// Only observed positive IOppt.lvl values pass the level gate: limit 0 is
+// unlimited, otherwise lvl <= limit. Unknown levels must not count as an
+// over-level rejection. Filter levels before requesting protection states,
+// and prefer a fully checked candidate over unrelated incomplete profiles.
+// Discovery caches survive five minutes of paced scheduling. Before spending,
+// the runner refreshes only the selected UID as necessary and rechecks level,
+// labor state, policy, slots and tickets after request pacing; candidate level
+// and labor evidence must both be younger than 30 seconds. A local pre-send
+// veto does not lock the session, while an ambiguous sent hire still does.
+// A contested UID is cooled for 60 seconds. `pearlPlace.hire` must carry the exact observed
 // item 1003 x1 cost gate. Only this RPC inspects namespace `3.0` as the
-// client-side `$ext.iv`: exact zero is safe; nonzero or malformed-present data
-// locks automatic hiring for the rest of the session.
+// client-side `$ext.iv`: exact zero is safe; nonzero makes the official client
+// show `c_pearl.$hireDefGld` and return to candidate selection without a second
+// payment RPC. The rejected attempt may still consume its submitted hire
+// ticket, so automation records any exact one-ticket decrease and skips only
+// that UID for the current session. Malformed-present data or an otherwise
+// ambiguous result locks automatic hiring for the rest of the session.
 //
 // # Friend Flower Pick State (Namespaces 24, 110, 111)
 //
@@ -168,6 +206,23 @@
 // present. Task completion uses raw server progress; UI progress is clamped.
 // Slot unlock, paid reroll/direct-complete, gifts, and the activity shop are
 // deliberately outside the safe automatic surface.
+// Initialization uses the batch identity and active/grace phase, not the lazy
+// score/bag/task fields; reward submission still requires the full valid view.
+// The official client also handles bst act_refreshBatch notices by calling
+// act.syncBatchInfo with batchIdList from refreshBatchIds. The runner coalesces
+// those IDs and synchronizes them on its serialized, paced decision loop.
+// An empty/missing list is not evidence of a supported full-discovery RPC.
+//
+// # Guild Membership (Namespace 25.1)
+//
+// IFmlTot.mb uses uid=0, fid=1, pos=2; contribution/activity updates may omit
+// fid and must merge rather than clear membership (tmp/mini/176 IFmlMb).
+// Explicit null mb or fid=0 closes guild execution. fml.enter requests
+// {fml:1,mb:1,mbL:1}; replies can be bare IFmlTot or wrapped in namespace 25.
+// mbL (25.2) is a fallback only for the authenticated UID. A successful explicit
+// enter may supply only the current guild record; ordinary cached 25.0/race
+// deltas do not establish membership. Bare code 109 is observed for fml.enter
+// without a guild; timeouts and 97777/97778 are not membership evidence.
 //
 // # Guild Land State (Namespace 25.102)
 //
@@ -183,12 +238,13 @@
 //	"0" = level (c_fmlLandLvl growth tier)
 //	"1" = flowerId (0 = empty)
 //	"2" = startTime (ms; plant start)
-//	"3" = matureFlwCnt (often stale until the client UI recalculates)
-//	"4" = harvestedFlwCnt
+//	"3" = matureFlwCnt (current unclaimed stock; client adds elapsed production)
+//	"4" = harvestedFlwCnt (historical harvest count, not subtracted from stock)
 //	"5" = lastCalcTime (ms)
 //
-// Pending harvest prefers max(protocol mature-harvested, startTime+c_fmlLandLvl
-// time/stock). Sync via fml.enter; mutate with fmlLand.harvest / fmlLand.plant.
+// Pending harvest follows mini's calcFmlLandMature: matureFlwCnt plus production
+// since lastCalcTime (falling back to startTime), limited by c_fmlLandLvl.stock.
+// Sync via fml.enter; mutate with fmlLand.harvest / fmlLand.plant.
 //
 // # Guild Race Task Targets (Namespace 25.114 / 25.110)
 //
@@ -202,7 +258,44 @@
 // or locked vase targets are unsafe to take; a held task with such a target
 // cannot be completed by automation.
 //
+// IFmlRaceTask fields 14/15 are isUpgrade/upgradeUid. Mini 176's race UI uses
+// field 14 for the upgrade badge and field 15 to look up the upgrading member.
+// It does not establish that an upgraded row with a zero/missing upgradeUid
+// was system-upgraded. Such a row has unknown ownership, not confirmed self
+// ownership, and cannot bypass an exclude-other-upgrades policy.
+//
+// fmlRace.upgradeTask sends an empty object and upgrades only the current held
+// task. Mini PFmlRaceTaskUpDlg computes calFmlUpgradeCost from the task's score
+// and upgraded reward, then checks item 1 (the visible 元宝 balance, 7.0.41).
+// Automation requires an explicit switch, positive per-task budget, fresh pool
+// evidence and execution-time cost validation; an ambiguous result must not be
+// automatically retried within the same runner session.
+//
+// Error 5000 has been observed across harvest, orders, pearl rewards and
+// health-score reads in user logs, but its server-side meaning is unconfirmed.
+// Repeated cross-RPC failures are handled by runner account request protection;
+// the protocol layer must not classify 5000 alone as displacement or expiry.
+//
 // # Personal Land Fields (G.ILand, Namespace 100)
+//
+// Mini 176 src/assets/scripts/game.js registers message 97777 with a handler
+// returning null, but supplies no reason for the server rejection. This does
+// not establish immaturity, login expiry or success. Preserve the raw error,
+// and do not infer that the operation succeeded. Mini's onMsgDlg_97778 formats
+// args[0] as a date; c_msgCode describes temporarily unavailable role data and
+// asks the player to retry after that time. Neither artifact establishes a
+// safe deletion frequency. The runner pauses all account RPCs on either code,
+// preserves that pause across restarts, and validates a cached-session login
+// after the deadline before replanning from its full state baseline.
+// Mini's c_msgCode 91102 explicitly means the login has expired; CnnMgr stops
+// and requests reloadGame on acknowledgement. If a post-deadline index.reLogin
+// returns 91102, the runner discards that rejected cache and falls back to the
+// channel login flow. It keeps the restriction until the new baseline succeeds;
+// transport failures, unknown codes and new restrictions do not trigger this
+// fallback during recovery.
+// Message envelopes may be bare numeric codes (m:91102) or objects with a
+// numeric code. Both feed the same safety classifier; unstructured error text
+// is not parsed as an authentication or request-protection code.
 //
 // Per-land fields use numeric-string keys:
 //
@@ -297,9 +390,16 @@
 // The client red-dot gate uses c_zooState.isTouch plus c_zoo.$moodMax1 and
 // strokeCdTime to decide whether strokePet is available. Normal bowl stocking
 // uses zoo.addFoodstuff with inventory food IDs and is gated only by observed
-// foodstuffArr capacity and inventory—not pet status or satiety. When enabled
-// and inventory is empty, generic shop 9 item 90001 buys food 1501 for 100 gold
-// per unit, subject to namespace 20 dRecord's daily limit. Diamond food 90002
+// foodstuffArr capacity and inventory—not pet status or satiety. A matching
+// 301/param.iid rejection invalidates that food's usable local balance and
+// refreshes the target bowl once via the existing session. This
+// does not assert a real zero balance: enterZoo refreshes namespace 33, not
+// inventory. This does not fabricate inventory changes or consumption stats;
+// namespace-7 absolute counts restore stock, while deltas only restore their
+// confirmed incremental quantity. The next planner turn may use other stock
+// or the configured gold-only purchase. When enabled and usable inventory is
+// empty, generic shop 9 item 90001 buys food 1501 for 100 gold per unit, subject
+// to namespace 20 dRecord's daily limit. Diamond food 90002
 // remains blocked. zoo.feedPets is only an acknowledgement path for another
 // player's feeding notification. Automated
 // event handling is sourced from 33.2 logs, never inferred from pet fields.

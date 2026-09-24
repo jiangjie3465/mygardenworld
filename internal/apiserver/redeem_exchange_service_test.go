@@ -60,6 +60,16 @@ func TestPublicRedeemSubmissionAndListing(t *testing.T) {
 	if len(listed.Msg.GetEntries()) != 1 || listed.Msg.GetEntries()[0].GetCode() != "礼包-A" {
 		t.Fatalf("listed entries=%+v", listed.Msg.GetEntries())
 	}
+	browsed, err := svc.BrowseRedeemCodes(ctx, connect.NewRequest(&pb.BrowseRedeemCodesRequest{
+		PageSize: 1,
+		Filter:   pb.RedeemBrowseFilter_REDEEM_BROWSE_FILTER_ACTIVE,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if browsed.Msg.GetActiveTotal() != 1 || browsed.Msg.GetHistoryTotal() != 0 || len(browsed.Msg.GetEntries()) != 1 {
+		t.Fatalf("browsed=%+v", browsed.Msg)
+	}
 }
 
 func TestPublicRedeemSubmissionRequiresExpiryOrPermanent(t *testing.T) {
@@ -107,6 +117,10 @@ type untrustedRedeemPeer struct {
 
 func (p *untrustedRedeemPeer) GetExchangeInfo(_ context.Context, _ *connect.Request[pb.GetExchangeInfoRequest]) (*connect.Response[pb.GetExchangeInfoResponse], error) {
 	return connect.NewResponse(&pb.GetExchangeInfoResponse{InstanceId: "untrusted-peer"}), nil
+}
+
+func (p *untrustedRedeemPeer) BrowseRedeemCodes(_ context.Context, _ *connect.Request[pb.BrowseRedeemCodesRequest]) (*connect.Response[pb.BrowseRedeemCodesResponse], error) {
+	return connect.NewResponse(&pb.BrowseRedeemCodesResponse{}), nil
 }
 
 func (p *untrustedRedeemPeer) ListRedeemCodes(_ context.Context, req *connect.Request[pb.ListRedeemCodesRequest]) (*connect.Response[pb.ListRedeemCodesResponse], error) {
@@ -181,7 +195,7 @@ func completeRedeemTestCode(t *testing.T, node *redeemTestNode, code, validation
 	if err != nil || attempt == nil || attempt.CodeID != entry.ID {
 		t.Fatalf("attempt=%+v entry=%+v err=%v", attempt, entry, err)
 	}
-	if err := node.db.CompleteRedeemAttempt(ctx, attempt.ID, validation, validation, nil); err != nil {
+	if err := node.db.CompleteRedeemAttempt(ctx, attempt.ID, attempt.RunToken, validation, validation, nil); err != nil {
 		t.Fatal(err)
 	}
 	entries, _, err := node.db.ListRedeemCodes(ctx, 0, 100, true, false, nil)
@@ -246,7 +260,7 @@ func TestNativeRedeemNodesExchangeOnlyLocallyVerifiedCodesWithoutLooping(t *test
 	if err != nil || attempt == nil {
 		t.Fatalf("subscriber attempt=%+v err=%v", attempt, err)
 	}
-	if err := subscriber.db.CompleteRedeemAttempt(ctx, attempt.ID, store.RedeemValidationSuccess, "success", nil); err != nil {
+	if err := subscriber.db.CompleteRedeemAttempt(ctx, attempt.ID, attempt.RunToken, store.RedeemValidationSuccess, "success", nil); err != nil {
 		t.Fatal(err)
 	}
 	var returnOutbox int

@@ -1,71 +1,86 @@
+<div align="center">
+
+<img src="web/public/brand/cloud-logo.svg" width="88" height="88" alt="Cloud logo" />
+
 # 小云朵
 
-个人自用的本地游戏自动化原型，由 `gardend` 守护进程和内嵌 Web 控制台组成。
+A small cloud for your garden. A self-hosted automation prototype with a built-in Web console.
 
-> 本项目仅供学习和本人授权账号的本地使用，不保证功能完整性、正确性或长期可用性。使用者应自行遵守相关服务条款、平台规则和当地法律法规。
+[![Release](https://img.shields.io/github/v/release/SilkageNet/mygardenworld?style=flat-square&color=0ea5e9)](https://github.com/SilkageNet/mygardenworld/releases/latest)
+[![CI](https://github.com/SilkageNet/mygardenworld/actions/workflows/ci.yml/badge.svg)](https://github.com/SilkageNet/mygardenworld/actions/workflows/ci.yml)
+[![Stars](https://img.shields.io/github/stars/SilkageNet/mygardenworld?style=flat-square&color=eab308)](https://github.com/SilkageNet/mygardenworld/stargazers)
 
-## 安装
+[Download](https://github.com/SilkageNet/mygardenworld/releases/latest) · [Quick start](#quick-start) · [Community](#community)
 
-Linux / macOS：
+</div>
+
+> [!WARNING]
+> **Unofficial, experimental, and used entirely at your own risk.**
+>
+> This project is not affiliated with or endorsed by the game or its platforms. It is intended for learning and personal use with accounts you own or are authorized to operate. Automation may violate platform rules and lead to account restrictions, suspension, or loss of game progress and resources.
+>
+> Avoid logging many accounts into the game from the same server or repeatedly retrying rejected logins: the game service may flag the shared IP. No safe account limit or restriction expiry is known.
+>
+> No guarantees are made about safety, correctness, or continued availability. You are responsible for your use and for complying with applicable terms, rules, and laws. **Do not use it if you cannot accept these risks.**
+
+## At a glance
+
+- **One daemon, one dashboard.** Manage automation, account status, and logs from your browser.
+- **Two supported channels.** iOS account login and Alipay QR authorization.
+- **Your accounts stay yours.** Per-user account isolation, reusable JSON policies, and personal notifications.
+
+## Quick start
+
+Download a [release](https://github.com/SilkageNet/mygardenworld/releases/latest) for Linux, macOS, or Windows, or use an installer:
+
+**Linux / macOS**
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SilkageNet/mygardenworld/main/scripts/install.sh | sh
 ```
 
-Windows PowerShell：
+**Windows PowerShell**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/SilkageNet/mygardenworld/main/scripts/install.ps1 -UseB | iex"
 ```
 
-也可以从 GitHub Release 下载对应平台的压缩包并运行其中的安装脚本。
-
-## 启动
+Open a new terminal after installation. Start the server with a strong admin password of your own:
 
 ```sh
 JWT_SECRET="$(openssl rand -hex 32)" \
-ADMIN_PASSWORD="Use-A-Long-Local-Admin-Password-123!" \
+ADMIN_PASSWORD="Replace-With-Your-Own-Strong-Password" \
 gardend serve --listen 127.0.0.1:50051
 ```
 
-打开 <http://127.0.0.1:50051>，使用管理员账号登录后添加游戏账号。默认管理员用户名为 `admin`。
+<details>
+<summary>Starting on Windows PowerShell</summary>
 
-目前仅支持 **iOS** 和 **Alipay**：iOS 使用游戏账号密码，Alipay 通过二维码自动完成授权。控制台按基础、花园、订单、公会、活动、仓库、统计和日志组织；读取状态通过一条 Protobuf WebSocket 推送，明确的账号与策略命令使用 Connect API。
-
-公开兑换码中心位于 `/redeem`。管理员可订阅其他 MyGardenWorld 节点或自定义只读来源；节点订阅填写对方站点根地址（如 `https://gardend.example.com`），无需填写接口路径。
-
-[查看社区兑换码的数据流与可信闭环](assets/redeem-exchange.svg)。
-
-数据默认保存在系统用户配置目录下的 `mygardenworld/data`。事件与操作日志默认保留 7 天，可通过 `gardend serve --log-retention-days N` 调整；`0` 表示永久保留，`1` 表示保留 1 天。清理后 SQLite 会复用空闲页，但文件不会自动缩小；如需归还磁盘空间，先停止 `gardend`，再运行 `gardend compact-db --yes`。
-
-如需重建本地数据：
-
-```sh
-gardend reset-data --yes
+```powershell
+$bytes = New-Object byte[] 32
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+$rng.GetBytes($bytes)
+$rng.Dispose()
+$env:JWT_SECRET = [Convert]::ToBase64String($bytes)
+$env:ADMIN_PASSWORD = "Replace-With-Your-Own-Strong-Password"
+gardend serve --listen 127.0.0.1:50051
 ```
 
-服务默认只监听回环地址。账号凭据和可恢复 Session 会在写入 SQLite 前使用本地密钥加密；备份时应同时保护 `garden.db` 和 `garden.db.key`。
+</details>
 
-## 从源码开发
+Open **[localhost:50051](http://127.0.0.1:50051)**, sign in as `admin`, and add your game account. Review its settings before enabling automation.
 
-需要系统 Go 1.27.0、Node.js 22、pnpm 10；重新生成协议还需要 Buf CLI。
+> [!TIP]
+> Keep the default loopback binding for local use. Back up both `garden.db` and `garden.db.key` together after stopping the daemon, and keep them private. Use `gardend serve --help` for data-directory and other options.
 
-```sh
-make build
-make test
-make lint
-make frontend:test
-make frontend:lint
-make frontend:build
-```
+## Community
 
-`make check` 会执行完整质量门禁。调试游戏协议回包时使用 `make backend:debug`，普通启动不会写入 debug JSONL。
+If this project is useful to you, **leave a star** — it helps others discover it.
 
-主要目录：
+Questions, ideas, and thoughtful feedback are welcome in [Issues](https://github.com/SilkageNet/mygardenworld/issues). Please search existing threads first, and remove credentials, tokens, and personal information from logs or screenshots before sharing. Small, focused pull requests are welcome too.
 
-- `cmd/`：守护进程和协议辅助工具
-- `internal/`：协议、状态、自动化、Runner、存储和 API
-- `proto/`、`gen/`：Protobuf 源文件与生成代码
-- `web/`：Next.js Web 控制台
+## Development
 
-协议行为以实际观测、`internal/babigame/doc.go`、Protobuf、代码和测试为准。开发约束见 [`AGENTS.md`](AGENTS.md)，第三方组件声明见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
+Use **Go 1.27.0**, **Node.js 22**, and **pnpm 10**. Start with `pnpm --dir web install --frozen-lockfile`, then run `make check` for the quality checks.
+
+See [AGENTS.md](AGENTS.md) for contributor guidance and [third-party notices](THIRD_PARTY_NOTICES.md) for dependency acknowledgments.

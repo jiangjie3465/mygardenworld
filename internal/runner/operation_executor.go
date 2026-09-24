@@ -28,6 +28,14 @@ type harvestLandError struct {
 	Err    error
 }
 
+// pearlHireCandidateFallbackError is an authoritative, candidate-scoped
+// outcome rather than an RPC failure. The server may consume the submitted
+// hire ticket while telling the client that this candidate requires the
+// configured gold alternative. Automation never follows that alternative.
+type pearlHireCandidateFallbackError struct {
+	TicketSpent bool
+}
+
 type zooHandleEventExecution struct {
 	preflight func() error
 	handle    func(context.Context, clientproto.ZooHandleEventRequest) (json.RawMessage, error)
@@ -56,15 +64,16 @@ type pearlRecvOneKeyExecution struct {
 }
 
 type pearlHireExecution struct {
-	preflight   func(time.Time) (state.PearlHireAttemptSnapshot, error)
-	hire        func(context.Context, clientproto.PearlPlaceHireRequest) (json.RawMessage, error)
-	apply       func(json.RawMessage)
-	outcome     func(state.PearlHireAttemptSnapshot) (bool, int32, bool)
-	ticketSpent func(state.PearlHireAttemptSnapshot) bool
-	markFailed  func(int64, time.Time)
-	noteUsed    func(context.Context, time.Time)
-	lockSession func(string)
-	now         func() time.Time
+	preflight     func(time.Time) (state.PearlHireAttemptSnapshot, error)
+	hire          func(context.Context, clientproto.PearlPlaceHireRequest) (json.RawMessage, error)
+	apply         func(json.RawMessage)
+	outcome       func(state.PearlHireAttemptSnapshot) (bool, int32, bool)
+	ticketSpent   func(state.PearlHireAttemptSnapshot) bool
+	markFailed    func(int64, time.Time)
+	skipCandidate func(int64)
+	noteUsed      func(context.Context, time.Time)
+	lockSession   func(string)
+	now           func() time.Time
 }
 
 type zooRecvSouvenirRewardExecution struct {
@@ -93,6 +102,13 @@ func (e *harvestLandError) Unwrap() error {
 		return nil
 	}
 	return e.Err
+}
+
+func (e *pearlHireCandidateFallbackError) Error() string {
+	if e != nil && e.TicketSpent {
+		return "珍珠雇佣触发金币替代提示，本次已消耗 1 张雇佣券；已在当前会话跳过该候选，不会自动使用金币"
+	}
+	return "珍珠雇佣触发金币替代提示，未观察到雇佣券扣除；已在当前会话跳过该候选，不会自动使用金币"
 }
 
 func stateDeltaOperation[Req any](
@@ -125,6 +141,12 @@ func (r *Runner) executePlannedOp(ctx context.Context, client *babigame.Client, 
 	spec, ok := operationSpecFor(op.Kind)
 	if !ok {
 		return nil, fmt.Errorf("unsupported planned operation %s", op.Kind)
+	}
+	if op.Kind == clientproto.RPCFmlRaceTakeTask.String() || op.Kind == clientproto.RPCFmlRaceDelTask.String() {
+		ctx = context.WithValue(ctx, raceMutationContextKey{}, op)
+	}
+	if isGuildRPC(op.Kind) && op.Kind != clientproto.RPCFmlEnter.String() {
+		ctx = context.WithValue(ctx, fmlExecutionContextKey{}, r.state.FmlBuild().MemberFmlID)
 	}
 	rawRPC := babigame.NewRPCClient(
 		client,

@@ -362,8 +362,12 @@ type BasicPolicy struct {
 	// ONLINE_ONLY never creates a session; pending codes wait until the account
 	// is already online for another reason.
 	RedeemConnectMode RedeemConnectMode `protobuf:"varint,17,opt,name=redeem_connect_mode,json=redeemConnectMode,proto3,enum=mygardenworld.v1.RedeemConnectMode" json:"redeem_connect_mode,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Opt-in: after the first 5000 protection cooldown, prefer one fresh
+	// authentication instead of cached recovery (rate-limited across incidents).
+	// May displace a mobile client; independent of displaced-session relogin.
+	ServerErrorFreshLoginEnabled bool `protobuf:"varint,18,opt,name=server_error_fresh_login_enabled,json=serverErrorFreshLoginEnabled,proto3" json:"server_error_fresh_login_enabled,omitempty"`
+	unknownFields                protoimpl.UnknownFields
+	sizeCache                    protoimpl.SizeCache
 }
 
 func (x *BasicPolicy) Reset() {
@@ -513,6 +517,13 @@ func (x *BasicPolicy) GetRedeemConnectMode() RedeemConnectMode {
 		return x.RedeemConnectMode
 	}
 	return RedeemConnectMode_REDEEM_CONNECT_MODE_UNSPECIFIED
+}
+
+func (x *BasicPolicy) GetServerErrorFreshLoginEnabled() bool {
+	if x != nil {
+		return x.ServerErrorFreshLoginEnabled
+	}
+	return false
 }
 
 type ReputationPolicy struct {
@@ -1985,8 +1996,12 @@ type CustomerOrderPolicy struct {
 	// Minimum flower-art piece count to accept. Orders below this are rejected.
 	// 0 means no filter; 2 accepts 2+ arts; 3 accepts only 3+ arts.
 	MinFlowerArtCount int32 `protobuf:"varint,4,opt,name=min_flower_art_count,json=minFlowerArtCount,proto3" json:"min_flower_art_count,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Exact whole-order floral-coin reward (item 1002), excluding video doubling.
+	// Absent disables the filter; zero explicitly matches zero-reward orders.
+	// Mismatches stay pending (never auto-rejected), including during a race task.
+	ExactFloralCoin *int64 `protobuf:"varint,5,opt,name=exact_floral_coin,json=exactFloralCoin,proto3,oneof" json:"exact_floral_coin,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *CustomerOrderPolicy) Reset() {
@@ -2043,6 +2058,13 @@ func (x *CustomerOrderPolicy) GetDailyLimit() int32 {
 func (x *CustomerOrderPolicy) GetMinFlowerArtCount() int32 {
 	if x != nil {
 		return x.MinFlowerArtCount
+	}
+	return 0
+}
+
+func (x *CustomerOrderPolicy) GetExactFloralCoin() int64 {
+	if x != nil && x.ExactFloralCoin != nil {
+		return *x.ExactFloralCoin
 	}
 	return 0
 }
@@ -2653,14 +2675,17 @@ type UnionRacePolicy struct {
 	OnlyUpgradeTask          bool            `protobuf:"varint,5,opt,name=only_upgrade_task,json=onlyUpgradeTask,proto3" json:"only_upgrade_task,omitempty"`
 	ExcludeOthersUpgradeTask bool            `protobuf:"varint,6,opt,name=exclude_others_upgrade_task,json=excludeOthersUpgradeTask,proto3" json:"exclude_others_upgrade_task,omitempty"`
 	TaskTypePriority         map[int32]int32 `protobuf:"bytes,7,rep,name=task_type_priority,json=taskTypePriority,proto3" json:"task_type_priority,omitempty" protobuf_key:"varint,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
-	UpgradeTask              bool            `protobuf:"varint,8,opt,name=upgrade_task,json=upgradeTask,proto3" json:"upgrade_task,omitempty"`
-	DeleteLowScoreTask       bool            `protobuf:"varint,9,opt,name=delete_low_score_task,json=deleteLowScoreTask,proto3" json:"delete_low_score_task,omitempty"`
-	DeleteTaskMaxScore       int32           `protobuf:"varint,10,opt,name=delete_task_max_score,json=deleteTaskMaxScore,proto3" json:"delete_task_max_score,omitempty"`
-	MaxSpendDiamond          int64           `protobuf:"varint,11,opt,name=max_spend_diamond,json=maxSpendDiamond,proto3" json:"max_spend_diamond,omitempty"`
+	// Independently upgrades the current unfinished task, subject to a known
+	// cost and max_spend_diamond. Does not require auto_enable_modules.
+	UpgradeTask        bool  `protobuf:"varint,8,opt,name=upgrade_task,json=upgradeTask,proto3" json:"upgrade_task,omitempty"`
+	DeleteLowScoreTask bool  `protobuf:"varint,9,opt,name=delete_low_score_task,json=deleteLowScoreTask,proto3" json:"delete_low_score_task,omitempty"`
+	DeleteTaskMaxScore int32 `protobuf:"varint,10,opt,name=delete_task_max_score,json=deleteTaskMaxScore,proto3" json:"delete_task_max_score,omitempty"`
+	// Per-task upgrade cost ceiling. Zero prohibits spending; never unlimited.
+	MaxSpendDiamond int64 `protobuf:"varint,11,opt,name=max_spend_diamond,json=maxSpendDiamond,proto3" json:"max_spend_diamond,omitempty"`
 	// When true with auto_enable_modules, stop planning takeTask once this
-	// batch's free task quota is used up (finished_task_num >= total_task_num).
+	// batch's actual task quota is used up (base slots + purchased extras).
 	// Sync / finish / giveUp of an already-held task still run. Default on in
-	// DefaultPolicy; purchased extra slots (buyTaskNum) are not consumed.
+	// DefaultPolicy. Using purchased slots never authorizes buying more slots.
 	AutoStopOnQuotaDone bool `protobuf:"varint,12,opt,name=auto_stop_on_quota_done,json=autoStopOnQuotaDone,proto3" json:"auto_stop_on_quota_done,omitempty"`
 	// When true, the race monitor shows personal cumulative score and guild-member
 	// rank for the current batch. Default off.
@@ -2673,8 +2698,12 @@ type UnionRacePolicy struct {
 	// taken outside gardend, so it is an explicit opt-in independent of
 	// auto_enable_modules. Default off.
 	AutoGiveUpTask bool `protobuf:"varint,15,opt,name=auto_give_up_task,json=autoGiveUpTask,proto3" json:"auto_give_up_task,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Account-wide minimum spacing between delete attempts, including manual
+	// deletion and its preflight refresh. Zero uses 120 seconds; clamped to
+	// 30..3600 seconds. This is a conservative local guard, not a server limit.
+	DeleteIntervalSeconds int32 `protobuf:"varint,16,opt,name=delete_interval_seconds,json=deleteIntervalSeconds,proto3" json:"delete_interval_seconds,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *UnionRacePolicy) Reset() {
@@ -2810,6 +2839,13 @@ func (x *UnionRacePolicy) GetAutoGiveUpTask() bool {
 		return x.AutoGiveUpTask
 	}
 	return false
+}
+
+func (x *UnionRacePolicy) GetDeleteIntervalSeconds() int32 {
+	if x != nil {
+		return x.DeleteIntervalSeconds
+	}
+	return 0
 }
 
 type UnionLandPolicy struct {
@@ -3112,7 +3148,7 @@ const file_mygardenworld_v1_policy_proto_rawDesc = "" +
 	"\x05union\x18\x05 \x01(\v2\x1d.mygardenworld.v1.UnionPolicyR\x05union\x12<\n" +
 	"\bactivity\x18\x06 \x01(\v2 .mygardenworld.v1.ActivityPolicyR\bactivity\x12:\n" +
 	"\x19decision_interval_seconds\x18\a \x01(\x01R\x17decisionIntervalSeconds\x12%\n" +
-	"\x0eschema_version\x18\b \x01(\rR\rschemaVersion\"\xac\a\n" +
+	"\x0eschema_version\x18\b \x01(\rR\rschemaVersion\"\xf4\a\n" +
 	"\vBasicPolicy\x12B\n" +
 	"\n" +
 	"reputation\x18\x01 \x01(\v2\".mygardenworld.v1.ReputationPolicyR\n" +
@@ -3133,7 +3169,8 @@ const file_mygardenworld_v1_policy_proto_rawDesc = "" +
 	"\x15water_claim_threshold\x18\x0e \x01(\x05R\x13waterClaimThreshold\x127\n" +
 	"\x18road_grow_reward_enabled\x18\x0f \x01(\bR\x15roadGrowRewardEnabled\x12I\n" +
 	"!displaced_session_relogin_enabled\x18\x10 \x01(\bR\x1edisplacedSessionReloginEnabled\x12S\n" +
-	"\x13redeem_connect_mode\x18\x11 \x01(\x0e2#.mygardenworld.v1.RedeemConnectModeR\x11redeemConnectMode\"J\n" +
+	"\x13redeem_connect_mode\x18\x11 \x01(\x0e2#.mygardenworld.v1.RedeemConnectModeR\x11redeemConnectMode\x12F\n" +
+	" server_error_fresh_login_enabled\x18\x12 \x01(\bR\x1cserverErrorFreshLoginEnabled\"J\n" +
 	"\x10ReputationPolicy\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\x1c\n" +
 	"\tthreshold\x18\x02 \x01(\x05R\tthreshold\"\xd6\x01\n" +
@@ -3280,13 +3317,15 @@ const file_mygardenworld_v1_policy_proto_rawDesc = "" +
 	"\x06palace\x18\x03 \x01(\v2#.mygardenworld.v1.PalaceOrderPolicyR\x06palace\x125\n" +
 	"\x04team\x18\x04 \x01(\v2!.mygardenworld.v1.TeamOrderPolicyR\x04team\x12@\n" +
 	"\n" +
-	"flower_art\x18\x05 \x01(\v2!.mygardenworld.v1.FlowerArtPolicyR\tflowerArt\"\xbf\x01\n" +
+	"flower_art\x18\x05 \x01(\v2!.mygardenworld.v1.FlowerArtPolicyR\tflowerArt\"\x86\x02\n" +
 	"\x13CustomerOrderPolicy\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12<\n" +
 	"\x1areject_unavailable_enabled\x18\x02 \x01(\bR\x18rejectUnavailableEnabled\x12\x1f\n" +
 	"\vdaily_limit\x18\x03 \x01(\x05R\n" +
 	"dailyLimit\x12/\n" +
-	"\x14min_flower_art_count\x18\x04 \x01(\x05R\x11minFlowerArtCount\"\xdd\x02\n" +
+	"\x14min_flower_art_count\x18\x04 \x01(\x05R\x11minFlowerArtCount\x12/\n" +
+	"\x11exact_floral_coin\x18\x05 \x01(\x03H\x00R\x0fexactFloralCoin\x88\x01\x01B\x14\n" +
+	"\x12_exact_floral_coin\"\xdd\x02\n" +
 	"\x13ResidentOrderPolicy\x12%\n" +
 	"\x0enormal_enabled\x18\x01 \x01(\bR\rnormalEnabled\x12,\n" +
 	"\x12normal_daily_limit\x18\x02 \x01(\x05R\x10normalDailyLimit\x12)\n" +
@@ -3337,7 +3376,7 @@ const file_mygardenworld_v1_policy_proto_rawDesc = "" +
 	"\ftake_enabled\x18\x05 \x01(\bR\vtakeEnabled\x12<\n" +
 	"\ttake_mode\x18\x06 \x01(\x0e2\x1f.mygardenworld.v1.SelectionModeR\btakeMode\x12%\n" +
 	"\x0etake_qualities\x18\a \x03(\x05R\rtakeQualities\x12&\n" +
-	"\x0ftake_flower_ids\x18\b \x03(\x05R\rtakeFlowerIds\"\xf9\x06\n" +
+	"\x0ftake_flower_ids\x18\b \x03(\x05R\rtakeFlowerIds\"\xb1\a\n" +
 	"\x0fUnionRacePolicy\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12.\n" +
 	"\x13auto_enable_modules\x18\x02 \x01(\bR\x11autoEnableModules\x12:\n" +
@@ -3354,7 +3393,8 @@ const file_mygardenworld_v1_policy_proto_rawDesc = "" +
 	"\x17auto_stop_on_quota_done\x18\f \x01(\bR\x13autoStopOnQuotaDone\x127\n" +
 	"\x18show_personal_score_rank\x18\r \x01(\bR\x15showPersonalScoreRank\x129\n" +
 	"\x16avoid_progressed_tasks\x18\x0e \x01(\bH\x00R\x14avoidProgressedTasks\x88\x01\x01\x12)\n" +
-	"\x11auto_give_up_task\x18\x0f \x01(\bR\x0eautoGiveUpTask\x1aC\n" +
+	"\x11auto_give_up_task\x18\x0f \x01(\bR\x0eautoGiveUpTask\x126\n" +
+	"\x17delete_interval_seconds\x18\x10 \x01(\x05R\x15deleteIntervalSeconds\x1aC\n" +
 	"\x15TaskTypePriorityEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\x05R\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01B\x19\n" +
@@ -3511,6 +3551,7 @@ func file_mygardenworld_v1_policy_proto_init() {
 	if File_mygardenworld_v1_policy_proto != nil {
 		return
 	}
+	file_mygardenworld_v1_policy_proto_msgTypes[18].OneofWrappers = []any{}
 	file_mygardenworld_v1_policy_proto_msgTypes[26].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

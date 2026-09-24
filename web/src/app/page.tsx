@@ -16,6 +16,7 @@ import {
   WorkspaceLogPageKind,
   type AccountRedeemAttemptPage,
   type WorkspaceLogPage,
+  type MaintenanceView,
 } from "@/gen/mygardenworld/v1/workspace_pb";
 import { AccountHealth } from "@/lib/api/workspace-models";
 import type { AccountStatus, Event, FeatureCapability } from "@/lib/api/workspace-models";
@@ -44,6 +45,7 @@ import {
 } from "@/features/workspace/basic/redeem-attempts-model";
 import { AccountDetailView, SelectAccountPlaceholder, type DashboardTabId } from "@/features/account-workspace/account-detail";
 import AccountListPanel, { type AccountQuota } from "@/features/account-workspace/account-list-panel";
+import { accountDeleting, reconcileAccountDeletions } from "@/features/account-workspace/account-deletion";
 import AddAccountDialog, { EMPTY_ADD_FORM, type AddAccountForm, type AlipayQRState } from "@/features/account-workspace/add-account-dialog";
 
 const accountClient = createClient(AccountService, transport);
@@ -78,9 +80,12 @@ export default function HomePage() {
 }
 
 function DashboardContent({ onServerVersion }: { onServerVersion: (version: string) => void }) {
+  const [maintenance, setMaintenance] = useState<MaintenanceView>();
   const { user } = useAuth();
   const router = useRouter();
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const deletedAccountIds = useRef(new Set<bigint>());
+  const [accountMessage, setAccountMessage] = useState("");
   const [statuses, setStatuses] = useState<Map<string, AccountStatus>>(new Map());
   const [featureCapabilities, setFeatureCapabilities] = useState<FeatureCapability[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState("");
@@ -99,6 +104,8 @@ function DashboardContent({ onServerVersion }: { onServerVersion: (version: stri
   const [error, setError] = useState("");
   const [policyMessage, setPolicyMessage] = useState("");
   const [addOpen, setAddOpen] = useState(false);
+  const [reauthAccount, setReauthAccount] = useState<Account | null>(null);
+  const activeAlipayLoginId = useRef("");
   const [addForm, setAddForm] = useState<AddAccountForm>(EMPTY_ADD_FORM);
   const [alipayQR, setAlipayQR] = useState<AlipayQRState | null>(null);
   const [dashboardTab, setDashboardTab] = useState<DashboardTabId>("basic");
@@ -108,6 +115,7 @@ function DashboardContent({ onServerVersion }: { onServerVersion: (version: stri
   const accountsRef = useRef<Account[]>([]);
   const statusesRef = useRef<Map<string, AccountStatus>>(new Map());
   const accountsLoadedRef = useRef(false);
+  const accountRefreshRevision = useRef(0);
   const policyOwnerAccountIdRef = useRef("");
   const logFeedsRef = useRef<Map<string, LogFeed>>(new Map());
   const redeemFeedRef = useRef(emptyRedeemAttemptFeed());
@@ -117,6 +125,7 @@ function DashboardContent({ onServerVersion }: { onServerVersion: (version: stri
     [accounts, selectedAccountId],
   );
   const selectedStatus = selectedAccountId ? statuses.get(selectedAccountId) : undefined;
+  const selectedDeleting = selectedAccount ? accountDeleting(selectedAccount, selectedStatus) : false;
   const hasAccounts = accounts.length > 0;
   const creatingAccount = busyAction === "create";
   const accountQuota = useMemo<AccountQuota | null>(() => {
@@ -143,8 +152,22 @@ function DashboardContent({ onServerVersion }: { onServerVersion: (version: stri
   }, [selectedAccountId]);
 
   const refreshAccounts = useCallback(async () => {
+    const revision = ++accountRefreshRevision.current;
     const accountRes = await accountClient.listAccounts({});
-    setAccounts(accountRes.accounts);
+    if (revision !== accountRefreshRevision.current) return;
+    const remaining = new Set(accountRes.accounts.map((account) => account.id));
+    for (const account of accountsRef.current) {
+      if (account.deletionPending && !remaining.has(account.id)) {
+        deletedAccountIds.current.add(account.id);
+        setAccountMessage(`账号「${account.name}」已删除，相关记录已清理。`);
+        logFeedsRef.current.delete(accountKey(account.id));
+      }
+    }
+    // A list read started before deletion may arrive after its commit.
+    setAccounts((current) => accountRes.accounts.filter((account) => !deletedAccountIds.current.has(account.id)).map((account) => {
+      const previous = current.find((item) => item.id === account.id);
+      return previous?.deletionPending ? { ...account, deletionPending: true } : account;
+    }));
     accountsLoadedRef.current = true;
   }, []);
 
@@ -154,8 +177,12 @@ function DashboardContent({ onServerVersion }: { onServerVersion: (version: stri
       nextStatuses.set(accountKey(status.accountId), status);
     }
     setStatuses(nextStatuses);
+    if (accountsRef.current.some((account) => account.deletionPending && !nextStatuses.has(accountKey(account.id)))) {
+      void refreshAccounts().catch((err) => setError(formatAPIError(err, "核对删除状态失败")));
+    }
+    setAccounts((current) => reconcileAccountDeletions(current, nextStatuses));
     setError((current) => (isTransientConnectionMessage(current) ? "" : current));
-  }, []);
+  }, [refreshAccounts]);
 
   const applyLogPage = useCallback((page?: WorkspaceLogPage) => {
     if (!page) return;
@@ -236,11 +263,13 @@ function DashboardContent({ onServerVersion }: { onServerVersion: (version: stri
     const client = new WorkspaceClient({
       onConnectionState: setWorkspaceConnection,
       onReady: (ready) => {
+        setMaintenance(ready.maintenance);
         applyStatuses(ready.accounts);
         setFeatureCapabilities(ready.featureCapabilities);
         onServerVersion(ready.serverVersion || "dev");
       },
       onStatuses: (batch) => applyStatuses(batch.accounts),
+      onMaintenance: setMaintenance,
       onSnapshot: (snapshot) => {
         const state = snapshot.state;
         if (!state || accountKey(state.accountId) !== selectedAccountIdRef.current) return;
@@ -275,6 +304,7 @@ function DashboardContent({ onServerVersion }: { onServerVersion: (version: stri
       onLogs: applyLogPage,
       onRedeemAttempts: applyRedeemPage,
       onAlipayLogin: (progress) => {
+        if (progress.loginId !== activeAlipayLoginId.current) return;
         setAlipayQR((current) => current && current.loginId === progress.loginId
           ? { ...current, status: progress.status, error: progress.loginError }
           : current);
@@ -284,6 +314,8 @@ function DashboardContent({ onServerVersion }: { onServerVersion: (version: stri
           setAddOpen(false);
           setAddForm(EMPTY_ADD_FORM);
           setAlipayQR(null);
+          setReauthAccount(null);
+          activeAlipayLoginId.current = "";
           void refreshAccounts();
         }
       },
@@ -343,7 +375,8 @@ function DashboardContent({ onServerVersion }: { onServerVersion: (version: stri
     const nextRedeemFeed = emptyRedeemAttemptFeed(selectedAccountId);
     redeemFeedRef.current = nextRedeemFeed;
     setRedeemFeed(nextRedeemFeed);
-    if (!selectedAccountId) {
+    if (!selectedAccountId || selectedDeleting) {
+      workspaceClientRef.current?.selectAccount("");
       setPolicyLoading(false);
       setViewsLoading(false);
       return;
@@ -351,7 +384,7 @@ function DashboardContent({ onServerVersion }: { onServerVersion: (version: stri
     setPolicyLoading(true);
     setViewsLoading(true);
     workspaceClientRef.current?.selectAccount(selectedAccountId);
-  }, [selectedAccountId]);
+  }, [selectedAccountId, selectedDeleting]);
 
   function updateCachedAccount(account?: Account) {
     if (!account) return;
@@ -448,11 +481,15 @@ function DashboardContent({ onServerVersion }: { onServerVersion: (version: stri
     }
   }
 
-  async function runAutomationBulk(action: "start" | "pause") {
+  async function runAutomationBulk(action: "start" | "pause", accountIds?: string[]) {
     if (busyBulkAutomation || busyAutomationAccountId) return;
     const wantOnline = action === "start";
+    const selected = accountIds ? new Set(accountIds) : null;
     const targets = accountsRef.current.filter((account) => {
-      const online = accountConnected(account, statusesRef.current.get(accountKey(account.id)));
+      const key = accountKey(account.id);
+      if (accountDeleting(account, statusesRef.current.get(key))) return false;
+      if (selected && !selected.has(key)) return false;
+      const online = accountConnected(account, statusesRef.current.get(key));
       return online !== wantOnline;
     });
     if (targets.length === 0) return;
@@ -516,7 +553,7 @@ function DashboardContent({ onServerVersion }: { onServerVersion: (version: stri
       }
       return;
     }
-    if (accountQuota?.reached) {
+    if (!reauthAccount && accountQuota?.reached) {
       setError(`账号已满（${accountQuota.current}/${accountQuota.max}）`);
       return;
     }
@@ -524,22 +561,26 @@ function DashboardContent({ onServerVersion }: { onServerVersion: (version: stri
     setBusyAction("create");
     setError("");
     try {
-      const res = await accountClient.createAccount({
+      const res = reauthAccount ? await accountClient.reauthenticateAccount({
+        id: reauthAccount.id, password: addForm.password,
+      }) : await accountClient.createAccount({
         username: addForm.username.trim(),
         password: addForm.password,
         channel: addForm.channel,
+        initialPolicyAccountId: BigInt(addForm.initialPolicyAccountId || "0"),
       });
       setAddOpen(false);
       setAddForm(EMPTY_ADD_FORM);
+      setReauthAccount(null);
       await refreshAccountCollection();
       if (res.account?.id) {
         setSelectedAccountId(accountKey(res.account.id));
       }
-      if (res.loginError) {
+      if ("loginError" in res && res.loginError) {
         setError(res.loginError);
       }
     } catch (err) {
-      setError(formatAPIError(err, "新增账号失败"));
+      setError(formatAPIError(err, reauthAccount ? "重新登录失败" : "新增账号失败"));
     } finally {
       setBusyAction("");
     }
@@ -550,7 +591,11 @@ function DashboardContent({ onServerVersion }: { onServerVersion: (version: stri
     setError("");
     setAlipayQR(null);
     try {
-      const response = await accountClient.startAlipayLogin({});
+      const response = await accountClient.startAlipayLogin({
+        accountId: reauthAccount?.id ?? BigInt(0),
+        initialPolicyAccountId: BigInt(addForm.initialPolicyAccountId || "0"),
+      });
+      activeAlipayLoginId.current = response.loginId;
       setAlipayQR({
         loginId: response.loginId,
         content: response.qrContent,
@@ -566,26 +611,35 @@ function DashboardContent({ onServerVersion }: { onServerVersion: (version: stri
   }
 
   async function deleteSelectedAccount() {
-    if (!selectedAccount) return;
-    const confirmed = window.confirm(`确认删除账号「${selectedAccount.name}」？此操作会移除本地账号、会话和策略。`);
+    if (!selectedAccount || busyAction || selectedDeleting) return;
+    const deleting = selectedAccount;
+    const confirmed = window.confirm(`确认删除账号「${deleting.name}」？提交后不可撤销，将停止账号并在后台分批清理本地会话、策略和相关记录。清理期间不能操作或重新添加该账号，不会删除游戏角色。`);
     if (!confirmed) return;
     setBusyAction("delete");
     setError("");
+    setAccountMessage(`正在提交「${deleting.name}」的删除请求…`);
     try {
-      await accountClient.deleteAccount({ id: selectedAccount.id });
-      policyOwnerAccountIdRef.current = "";
-      const nextAccounts = accounts.filter((account) => account.id !== selectedAccount.id);
-      setSelectedAccountId(nextAccounts[0] ? accountKey(nextAccounts[0].id) : "");
-      setViews(EMPTY_ACCOUNT_VIEWS);
-      setPolicy(null);
-      setStatuses((current) => {
-        const next = new Map(current);
-        next.delete(accountKey(selectedAccount.id));
-        return next;
-      });
-      await refreshAccountCollection();
+      await accountClient.deleteAccount({ id: deleting.id }, { timeoutMs: 25_000 });
+      accountRefreshRevision.current++;
+      accountsRef.current = accountsRef.current.map((account) => account.id === deleting.id
+        ? { ...account, deletionPending: true, connected: false } : account);
+      setAccounts((current) => current.map((account) => account.id === deleting.id
+        ? { ...account, deletionPending: true, connected: false } : account));
+      // Keep the pending account visible; do not touch another selected account.
+      if (selectedAccountIdRef.current === accountKey(deleting.id)) {
+        workspaceClientRef.current?.selectAccount("");
+        policyOwnerAccountIdRef.current = "";
+        setViews(EMPTY_ACCOUNT_VIEWS);
+        setPolicy(null);
+      }
+      setAccountMessage(`账号「${deleting.name}」的删除请求已保存，后台清理完成后会自动移出列表，可以关闭页面。`);
+      // A tiny account can finish before this command response, and the socket
+      // does not resend unchanged status batches. Confirm once after acceptance.
+      void refreshAccounts().catch((err) => setError(formatAPIError(err, "删除请求已保存，但刷新状态失败")));
     } catch (err) {
-      setError(formatAPIError(err, "删除账号失败"));
+      setAccountMessage("");
+      setError(`账号「${deleting.name}」删除请求未确认，正在刷新状态；若仍未进入删除状态可重试。${formatAPIError(err)}`);
+      void refreshAccountCollection().catch(() => {});
     } finally {
       setBusyAction("");
     }
@@ -648,11 +702,18 @@ function DashboardContent({ onServerVersion }: { onServerVersion: (version: stri
 
   return (
     <div className="relative z-10 min-h-0 xl:h-full">
+      {maintenance?.enabled && (
+        <div role="status" className="mb-4 rounded-md border border-amber-400/30 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-400/10 dark:text-amber-200">
+          {maintenance.draining ? "正在进入系统维护，停止游戏连接与在途请求。" : "系统维护中，游戏连接与操作已暂停。"}
+          您的自动化配置保持不变，仍可查看已有记录及调整设置。
+        </div>
+      )}
       {error && (
-        <div className="mb-4 rounded-md border border-destructive/25 bg-white/72 px-3 py-2 text-sm text-destructive shadow-sm backdrop-blur-xl dark:bg-destructive/12">
+        <div role="alert" className="mb-4 rounded-md border border-destructive/25 bg-white/72 px-3 py-2 text-sm text-destructive shadow-sm backdrop-blur-xl dark:bg-destructive/12">
           {error}
         </div>
       )}
+      {accountMessage && <div role="status" className="mb-4 rounded-md border border-border bg-card px-3 py-2 text-sm">{accountMessage}</div>}
       {!error && workspaceConnection !== "open" && (
         <div className="mb-4 rounded-md border border-amber-400/30 bg-amber-50/75 px-3 py-2 text-sm text-amber-800 shadow-sm backdrop-blur-xl dark:bg-amber-400/10 dark:text-amber-200">
           状态通道正在{workspaceConnection === "connecting" ? "连接" : "重连"}，写操作仍可继续使用。
@@ -675,13 +736,13 @@ function DashboardContent({ onServerVersion }: { onServerVersion: (version: stri
             busyAutomationAccountId={busyAutomationAccountId}
             busyBulkAutomation={busyBulkAutomation}
             onRefresh={() => void refreshDashboardStatus()}
-            onAdd={() => setAddOpen(true)}
+            onAdd={() => { setReauthAccount(null); setAddForm(EMPTY_ADD_FORM); setError(""); setAddOpen(true); }}
             onRedeem={() => router.push("/redeem")}
             onSelect={setSelectedAccountId}
             onAutomationToggle={(accountId) => void runAutomationToggle(accountId)}
             onAutomationStop={(accountId) => void runAutomationStop(accountId)}
-            onBulkStart={() => void runAutomationBulk("start")}
-            onBulkPause={() => void runAutomationBulk("pause")}
+            onBulkStart={(accountIds) => void runAutomationBulk("start", accountIds)}
+            onBulkPause={(accountIds) => void runAutomationBulk("pause", accountIds)}
           />
         </aside>
 
@@ -717,6 +778,14 @@ function DashboardContent({ onServerVersion }: { onServerVersion: (version: stri
                 }}
                 onAction={runAccountAction}
                 onDelete={() => void deleteSelectedAccount()}
+                onReauthenticate={() => {
+                  setReauthAccount(selectedAccount);
+                  setAddForm({ ...EMPTY_ADD_FORM, channel: selectedAccount.channel, username: selectedAccount.username });
+                  setAlipayQR(null);
+                  activeAlipayLoginId.current = "";
+                  setError("");
+                  setAddOpen(true);
+                }}
                 onPolicyChange={setPolicy}
                 onPolicySave={() => void savePolicy()}
                 onLoadMoreLogs={loadMoreLogs}
@@ -736,15 +805,21 @@ function DashboardContent({ onServerVersion }: { onServerVersion: (version: stri
         qr={alipayQR}
         quota={accountQuota}
         creating={creatingAccount}
+        accounts={accounts.filter((account) => !accountDeleting(account, statuses.get(accountKey(account.id))))}
+        targetAccount={reauthAccount}
+        error={error}
         onOpenChange={(open) => {
+          if (creatingAccount) return;
           setAddOpen(open);
           if (!open) {
             setAddForm(EMPTY_ADD_FORM);
             setAlipayQR(null);
+            setReauthAccount(null);
+            activeAlipayLoginId.current = "";
           }
         }}
         onFormChange={setAddForm}
-        onClearQR={() => setAlipayQR(null)}
+        onClearQR={() => { setAlipayQR(null); activeAlipayLoginId.current = ""; }}
         onSubmit={createAccount}
       />
 

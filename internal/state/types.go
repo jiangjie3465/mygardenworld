@@ -262,6 +262,8 @@ type FmlBuildView struct {
 	MemberPositionObserved bool            `json:"member_position_observed,omitempty"`
 	MemberPosition         int32           `json:"member_position,omitempty"`
 	MemberPositionSyncAtMs int64           `json:"member_position_sync_at_ms,omitempty"`
+	MembershipSyncAtMs     int64           `json:"membership_sync_at_ms,omitempty"`
+	MembershipSyncAttempts int             `json:"membership_sync_attempts,omitempty"`
 	TodayBuildNum          int32           `json:"today_build_num,omitempty"`
 	LastBuildTimeMs        int64           `json:"last_build_time_ms,omitempty"`
 	FlowerTakeCnt          int32           `json:"flower_take_cnt,omitempty"` // 25.0.102 公会摸花次数上限
@@ -338,7 +340,7 @@ type FmlRaceTaskView struct {
 	TaskType       int32  // c_fmlRaceTask.type (priority / label key, e.g. 3036)
 	Score          int32  // task score
 	IsUpgrade      int32  // 1 if already upgraded
-	UpgradeUid     int64  // UID of the member who upgraded (0 if none)
+	UpgradeUid     int64  // observed upgrader UID; 0 does not prove a system upgrade
 	UID            int64  // taker uid; non-zero means the task is already taken
 	ParamID        int32  // first param id when present (flower/item); 0 if none
 	TargetLabel    string // catalog name for ParamID; empty when unavailable
@@ -388,14 +390,18 @@ type FmlRaceView struct {
 	// was last confirmed by getTaskList. A successful no-change delta advances it
 	// when TasksObserved is already true.
 	TasksSyncedAtMs int64
-	BatchActive     bool              // true if status/time window indicates an active race
-	BatchID         int64             // CurFmlRaceBatch.batchId (field 0; millisecond timestamp)
-	BatchStatus     int32             // raw Status value from server (field 1 of CurFmlRaceBatch)
-	BatchStartMs    int64             // race batch start time in ms (field 2)
-	BatchEndMs      int64             // race batch end time in ms (field 3)
-	Tasks           []FmlRaceTaskView // available task pool (field 114)
-	Taken           FmlRaceTakenView  // current user's taken task (from field 110)
-	// TaskQuotaObserved is true after field 110 (usr rcd) was applied.
+	// FullTasksSyncedAtMs advances only for a decoded, complete getTaskList
+	// response. Pushes and empty acknowledgements cannot renew this evidence.
+	FullTasksSyncedAtMs int64
+	BatchActive         bool              // true if status/time window indicates an active race
+	BatchID             int64             // CurFmlRaceBatch.batchId (field 0; millisecond timestamp)
+	BatchStatus         int32             // raw Status value from server (field 1 of CurFmlRaceBatch)
+	BatchStartMs        int64             // race batch start time in ms (field 2)
+	BatchEndMs          int64             // race batch end time in ms (field 3)
+	Tasks               []FmlRaceTaskView // available task pool (field 114)
+	Taken               FmlRaceTakenView  // current user's taken task (from field 110)
+	// TaskQuotaObserved means the current batch's finished count was observed
+	// in the personal record or member rank list; a purchase-only delta is insufficient.
 	TaskQuotaObserved bool
 	// FinishedTaskNum is IFmlRaceUsrRcd.fTaskNum (completed tasks this batch).
 	FinishedTaskNum int32
@@ -427,9 +433,10 @@ type FmlRaceView struct {
 	// current incomplete rows have not yet received their one immediate refresh.
 	MissingParamRefreshFP string
 	// TakeQuotaExhausted is set when takeTask returns「任务接取次数已达上限」.
-	// Cleared when the race batch identity changes. Blocks further take attempts
-	// for the remainder of this batch without marking the account abnormal.
-	TakeQuotaExhausted bool
+	// Cleared on batch change or newly observed purchased slots with remaining
+	// quota. Pool refreshes and unchanged counters cannot clear a server rejection.
+	TakeQuotaExhausted           bool
+	takeQuotaExhaustedBuyTaskNum int32
 	// LocalFinishCnt is a high-water harvest progress for the current taken
 	// plant-harvest task. It advances from field 134 and from land HarvestCnt
 	// deltas so the planner does not top-up-plant when FinishCnt lags or when
@@ -597,6 +604,7 @@ type PearlHireView struct {
 	Enemies               []PearlEnemyView
 	EnemiesObserved       bool
 	FailedUntilMs         map[int64]int64
+	SkippedUIDs           map[int64]struct{}
 	SessionLocked         bool
 	SessionLockReason     string
 }
@@ -703,6 +711,8 @@ type MainTaskClaimSnapshot struct {
 // CyclicNoteView is a defensive snapshot of the dynamically selected
 // 花笺集芳 (tmpType 4002) activity in namespace 23.
 type CyclicNoteView struct {
+	EnterReady                bool
+	TaskListValid             bool
 	Observed                  bool
 	Found                     bool
 	Valid                     bool
@@ -845,7 +855,7 @@ type CyclicStoryMilestoneClaimSnapshot struct {
 
 // CyclicNoteEnterSnapshot freezes the exact active batch before an enter RPC.
 // Enter is only safe while the batch is in its active or reward-grace phase
-// and before its authoritative task list has been observed.
+// and its authoritative task/resource/template state still needs initialization.
 type CyclicNoteEnterSnapshot struct {
 	At      time.Time
 	BatchID int32

@@ -1,7 +1,7 @@
 // Package runner owns the per-account lifecycle: HTTP login + WebSocket
 // connection + state tracker + automation loop + event broadcast. The
-// gRPC server creates one runner per account on demand and keeps them in
-// a Manager.
+// daemon keeps one runner per account in a Manager; authenticated Connect
+// commands control it and workspace WebSocket reads reuse its state.
 package runner
 
 import (
@@ -93,17 +93,21 @@ type Runner struct {
 	account *store.Account
 	log     *slog.Logger
 
-	mu          sync.RWMutex
-	state       *state.State
-	policy      *pb.Policy
-	stats       *RuntimeStats
-	lastEventAt time.Time
-	bus         *Bus
-	startSource StartSource
+	mu              sync.RWMutex
+	state           *state.State
+	policy          *pb.Policy
+	stats           *RuntimeStats
+	lastEventAt     time.Time
+	bus             *Bus
+	startSource     StartSource
+	gameGate        *gameGate
+	accountGameGate *gameGate
+	pacer           *requestPacer
 
 	sessionRuntimeState
 	schedulerState
 	executionState
+	accountSafetyState
 }
 
 // New constructs a runner. cfg must already be resolved from the account's
@@ -119,6 +123,7 @@ func New(cfg babigame.Config, db *store.DB, account *store.Account, bus *Bus, lo
 		policy:  automation.DefaultPolicy(),
 		stats:   newRuntimeStats(time.Now()),
 		bus:     bus,
+		pacer:   newRequestPacer(RequestPacing{}),
 	}
 	r.harvestBlockedUntil = make(map[int32]time.Time)
 	r.operationCooldowns = make(map[string]operationCooldown)
@@ -127,6 +132,7 @@ func New(cfg babigame.Config, db *store.DB, account *store.Account, bus *Bus, lo
 	r.unknownRPCCounts = make(map[string]int32)
 	r.lastCustomerOrderInfo = make(map[int32]string)
 	r.done = make(chan struct{})
+	r.decisionWake = make(chan struct{}, 1)
 	return r
 }
 
@@ -195,4 +201,5 @@ func (r *Runner) SetPolicy(p *pb.Policy) {
 	if stopPendingRelogin {
 		r.failClosedPendingDisplacedRelogin()
 	}
+	r.wakeDecision()
 }

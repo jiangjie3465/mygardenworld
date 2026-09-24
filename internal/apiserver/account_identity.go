@@ -7,17 +7,39 @@ import (
 	"github.com/SilkageNet/mygardenworld/internal/babigame"
 )
 
-func (svc *Services) probeAccountIdentity(ctx context.Context, channel, username, password string) (*babigame.Session, error) {
+func (svc *Services) probeAccountIdentity(ctx context.Context, channel, username, password string) (session *babigame.Session, err error) {
+	ctx, release, err := svc.beginGameWork(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	cfg, err := babigame.ConfigForChannel(babigame.Channel(channel))
 	if err != nil {
 		return nil, err
 	}
-	httpc := babigame.NewHTTPClient(cfg, "", "", "")
+	userID, err := requireUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	identity, finish, err := svc.identityProbes.begin(identityProbeKey{userID, channel, username}, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	defer func() { finish(err, time.Now()) }()
+	httpc := babigame.NewHTTPClient(cfg, identity.deviceID, identity.uuid, "")
+	defer httpc.HTTPClient.CloseIdleConnections()
 	if pkg, err := httpc.QueryPackageConfig(ctx); err == nil && pkg.GameVersion != "" {
 		httpc.Cfg.GameVersion = pkg.GameVersion
 		httpc.Cfg.ClientVersion = pkg.GameVersion
 	}
 	return babigame.PerformLoginWithPassword(ctx, httpc, username, password, 1)
+}
+
+func (svc *Services) beginGameWork(ctx context.Context) (context.Context, func(), error) {
+	if svc.Manager == nil {
+		return ctx, func() {}, ctx.Err()
+	}
+	return svc.Manager.BeginGameWork(ctx)
 }
 
 func (svc *Services) saveLoginProbe(ctx context.Context, accountID int64, session *babigame.Session) {

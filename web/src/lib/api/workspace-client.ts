@@ -1,5 +1,6 @@
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { AlipayLoginStatus } from "@/gen/mygardenworld/v1/account_pb";
+import { LoadUserNotificationsSchema, type UserNotificationsView } from "@/gen/mygardenworld/v1/notification_pb";
 import {
   AccountRedeemAttemptFilter,
   WorkspaceClientFrameSchema,
@@ -19,6 +20,7 @@ import {
   type WorkspacePatch,
   type WorkspaceReady,
   type WorkspaceSnapshot,
+  type MaintenanceView,
 } from "@/gen/mygardenworld/v1/workspace_pb";
 import {
   AUTH_EXPIRED_EVENT,
@@ -42,6 +44,8 @@ export type WorkspaceClientHandlers = {
   onPatch?: (patch: WorkspacePatch) => void;
   onLogs?: (page: WorkspaceLogPage) => void;
   onRedeemAttempts?: (page: AccountRedeemAttemptPage) => void;
+  onNotifications?: (view: UserNotificationsView) => void;
+  onMaintenance?: (view: MaintenanceView) => void;
   onAlipayLogin?: (progress: AlipayLoginProgress) => void;
   onError?: (error: WorkspaceError) => void;
 };
@@ -83,11 +87,10 @@ export class WorkspaceClient {
 
   selectAccount(accountId: string) {
     this.selectedAccountId = accountId;
-    if (!accountId) return;
     this.send({
       case: "selectAccount",
       value: create(SelectWorkspaceAccountSchema, {
-        accountId: BigInt(accountId),
+        accountId: BigInt(accountId || "0"),
         afterLogId: this.logCursors.get(accountId) ?? BigInt(0),
       }),
     });
@@ -133,6 +136,10 @@ export class WorkspaceClient {
     if (!loginId) return;
     this.alipayLoginId = loginId;
     this.send({ case: "watchAlipayLogin", value: create(WatchAlipayLoginSchema, { loginId }) });
+  }
+
+  loadNotifications(beforeId = BigInt(0)) {
+    return this.send({ case: "loadNotifications", value: create(LoadUserNotificationsSchema, { beforeId }) });
   }
 
   private connect() {
@@ -245,6 +252,12 @@ export class WorkspaceClient {
         break;
       case "redeemAttempts":
         this.handlers.onRedeemAttempts?.(payload.value);
+        break;
+      case "notifications":
+        this.handlers.onNotifications?.(payload.value);
+        break;
+      case "maintenance":
+        this.handlers.onMaintenance?.(payload.value);
         break;
       case "alipayLogin":
         if (

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -21,6 +20,7 @@ import (
 
 	pb "github.com/SilkageNet/mygardenworld/gen/mygardenworld/v1"
 	"github.com/SilkageNet/mygardenworld/gen/mygardenworld/v1/mygardenworldv1connect"
+	"github.com/SilkageNet/mygardenworld/internal/outbound"
 	"github.com/SilkageNet/mygardenworld/internal/policycfg"
 	"github.com/SilkageNet/mygardenworld/internal/runner"
 	"github.com/SilkageNet/mygardenworld/internal/store"
@@ -32,6 +32,8 @@ const (
 	EventKindRedeemAttemptsUpdated = "redeem_attempts_updated"
 	maxSourcePages                 = 20
 	maxSourceBody                  = 1 << 20
+	attemptWorkerCount             = 4
+	accountBusyRetryDelay          = 3 * time.Second
 )
 
 type Submission struct {
@@ -81,7 +83,11 @@ func (s *Service) InstanceID() string { return s.instanceID }
 
 func (s *Service) Run(ctx context.Context) {
 	var wg sync.WaitGroup
-	for _, worker := range []func(context.Context){s.runAttempts, s.runSessionWakeups, s.runSources, s.runOutbox} {
+	workers := []func(context.Context){s.runSessionWakeups, s.runSources, s.runOutbox}
+	for range attemptWorkerCount {
+		workers = append(workers, s.runAttempts)
+	}
+	for _, worker := range workers {
 		wg.Add(1)
 		go func(run func(context.Context)) {
 			defer wg.Done()
@@ -161,6 +167,30 @@ func (s *Service) List(ctx context.Context, cursor string, limit int, includeExp
 	return entries, strconv.FormatInt(next, 10), nil
 }
 
+func (s *Service) Browse(ctx context.Context, page, pageSize int, history bool) ([]*store.RedeemCode, int64, int64, error) {
+	return s.db.BrowseRedeemCodes(ctx, page*pageSize, pageSize, history)
+}
+
+func (s *Service) UpdateExpiry(ctx context.Context, fingerprint string, expiresAt *time.Time, clearOverride bool) (*store.RedeemCode, error) {
+	var (
+		entry *store.RedeemCode
+		err   error
+	)
+	if clearOverride {
+		entry, err = s.db.ClearRedeemCodeExpiryOverride(ctx, fingerprint)
+	} else {
+		entry, err = s.db.SetRedeemCodeExpiryOverride(ctx, fingerprint, expiresAt)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := s.db.EnsureRedeemAttempts(ctx); err != nil {
+		return nil, err
+	}
+	s.signal()
+	return entry, nil
+}
+
 func (s *Service) signal() {
 	select {
 	case s.wake <- struct{}{}:
@@ -185,6 +215,17 @@ func (s *Service) runAttempts(ctx context.Context) {
 }
 
 func (s *Service) processNextAttempt(ctx context.Context) error {
+	if s.manager != nil && s.manager.MaintenanceStatus().Enabled {
+		return nil
+	}
+	recoveredAccounts, err := s.db.RecoverExpiredRedeemAttempts(ctx, time.Now())
+	if err != nil {
+		return fmt.Errorf("recover expired redeem attempts: %w", err)
+	}
+	for _, accountID := range recoveredAccounts {
+		s.log.Warn("recovered expired redeem attempt lease", "account_id", accountID)
+		s.publishAttemptsUpdated(&store.RedeemAttempt{AccountID: accountID})
+	}
 	if err := s.db.EnsureRedeemAttempts(ctx); err != nil {
 		return fmt.Errorf("ensure redeem attempts: %w", err)
 	}
@@ -225,6 +266,9 @@ func (s *Service) eligibleAccountIDs(ctx context.Context) ([]int64, error) {
 			continue
 		}
 		allowed, err := s.accountAllowsAutoConnect(ctx, accountID)
+		if !s.manager.BackgroundStartsAllowed() {
+			continue
+		}
 		if err != nil {
 			s.log.Warn("skip redeem account with unreadable policy", "account_id", accountID, "err", err)
 			continue
@@ -305,7 +349,7 @@ func (s *Service) processAttempt(ctx context.Context, attempt *store.RedeemAttem
 
 	r := s.manager.Get(attempt.AccountID)
 	if r != nil && !r.Connected() {
-		if err := s.db.ReleaseRedeemAttempt(ctx, attempt.ID, "账号会话正在恢复，等待上线后兑换"); err != nil {
+		if err := s.db.ReleaseRedeemAttempt(ctx, attempt.ID, attempt.RunToken, "账号会话正在恢复，等待上线后兑换", nil); err != nil {
 			s.log.Error("release redeem attempt for reconnecting account", "account_id", attempt.AccountID, "code", attempt.Fingerprint, "err", err)
 			return
 		}
@@ -313,6 +357,12 @@ func (s *Service) processAttempt(ctx context.Context, attempt *store.RedeemAttem
 		return
 	}
 	if r == nil {
+		if !s.manager.BackgroundStartsAllowed() {
+			if err := s.db.ReleaseRedeemAttempt(ctx, attempt.ID, attempt.RunToken, "维护后等待手动连接账号", nil); err != nil {
+				s.log.Error("release redeem attempt after maintenance", "err", err)
+			}
+			return
+		}
 		allowed, err := s.accountAllowsAutoConnect(ctx, attempt.AccountID)
 		if err != nil {
 			message := err.Error()
@@ -320,7 +370,7 @@ func (s *Service) processAttempt(ctx context.Context, attempt *store.RedeemAttem
 			return
 		}
 		if !allowed {
-			if err := s.db.ReleaseRedeemAttempt(ctx, attempt.ID, "账号离线，等待账号上线后兑换"); err != nil {
+			if err := s.db.ReleaseRedeemAttempt(ctx, attempt.ID, attempt.RunToken, "账号离线，等待账号上线后兑换", nil); err != nil {
 				s.log.Error("release redeem attempt for offline account", "account_id", attempt.AccountID, "code", attempt.Fingerprint, "err", err)
 				return
 			}
@@ -341,6 +391,15 @@ func (s *Service) processAttempt(ctx context.Context, attempt *store.RedeemAttem
 	result, err := r.RedeemCode(attemptCtx, attempt.Code)
 	cancel()
 	if err != nil {
+		if errors.Is(err, runner.ErrAccountOperationBusy) {
+			retryAt := time.Now().UTC().Add(accountBusyRetryDelay)
+			if releaseErr := s.db.ReleaseRedeemAttempt(ctx, attempt.ID, attempt.RunToken, "账号正在执行其他操作，稍后兑换", &retryAt); releaseErr != nil {
+				s.log.Error("defer redeem attempt for busy account", "account_id", attempt.AccountID, "code", attempt.Fingerprint, "err", releaseErr)
+				return
+			}
+			s.publishAttemptsUpdated(attempt)
+			return
+		}
 		message := err.Error()
 		s.completeAttempt(ctx, attempt, resultStatus, message, &retryAt)
 		return
@@ -384,7 +443,7 @@ func (s *Service) completeAttempt(
 	status, message string,
 	retryAt *time.Time,
 ) {
-	if err := s.db.CompleteRedeemAttempt(ctx, attempt.ID, status, message, retryAt); err != nil {
+	if err := s.db.CompleteRedeemAttempt(ctx, attempt.ID, attempt.RunToken, status, message, retryAt); err != nil {
 		s.log.Error("complete redeem attempt", "account_id", attempt.AccountID, "code", attempt.Fingerprint, "err", err)
 		return
 	}
@@ -737,16 +796,8 @@ func validateSourceURL(raw string, allowPrivate bool) (*url.URL, error) {
 		return nil, errors.New("custom sources require HTTPS")
 	}
 	if !allowPrivate {
-		lookupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		ips, err := net.DefaultResolver.LookupIPAddr(lookupCtx, parsed.Hostname())
-		if err != nil {
-			return nil, fmt.Errorf("resolve source host: %w", err)
-		}
-		for _, item := range ips {
-			if item.IP.IsPrivate() || item.IP.IsLoopback() || item.IP.IsLinkLocalUnicast() || item.IP.IsUnspecified() {
-				return nil, errors.New("custom source resolves to a private or local address")
-			}
+		if err := outbound.ValidateEndpoint(parsed.String()); err != nil {
+			return nil, err
 		}
 	}
 	return parsed, nil
@@ -810,46 +861,23 @@ func parseCustomParserConfig(raw string) (customParserConfig, error) {
 }
 
 func newSourceHTTPClient(allowPrivate bool, timeout time.Duration) *http.Client {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
 	if !allowPrivate {
-		dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
-		transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
-			host, port, err := net.SplitHostPort(address)
-			if err != nil {
-				return nil, err
-			}
-			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
-			if err != nil {
-				return nil, err
-			}
-			for _, item := range ips {
-				if item.IP.IsPrivate() || item.IP.IsLoopback() || item.IP.IsLinkLocalUnicast() || item.IP.IsUnspecified() {
-					return nil, errors.New("custom source resolves to a private or local address")
-				}
-			}
-			var lastErr error
-			for _, item := range ips {
-				conn, dialErr := dialer.DialContext(ctx, network, net.JoinHostPort(item.IP.String(), port))
-				if dialErr == nil {
-					return conn, nil
-				}
-				lastErr = dialErr
-			}
-			if lastErr == nil {
-				lastErr = errors.New("source host has no addresses")
-			}
-			return nil, lastErr
-		}
+		client := outbound.NewClient(timeout)
+		client.CheckRedirect = safeRedirectPolicy(false)
+		return client
 	}
 	return &http.Client{
 		Timeout:       timeout,
-		Transport:     transport,
+		Transport:     http.DefaultTransport.(*http.Transport).Clone(),
 		CheckRedirect: safeRedirectPolicy(allowPrivate),
 	}
 }
 
 func safeRedirectPolicy(allowPrivate bool) func(*http.Request, []*http.Request) error {
-	return func(req *http.Request, _ []*http.Request) error {
+	return func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return errors.New("too many source redirects")
+		}
 		_, err := validateSourceURL(req.URL.String(), allowPrivate)
 		return err
 	}

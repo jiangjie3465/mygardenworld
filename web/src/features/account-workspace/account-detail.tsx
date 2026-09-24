@@ -7,6 +7,7 @@ import {
   Cloud,
   Loader2,
   LogOut,
+  KeyRound,
   Play,
   RefreshCw,
   Send,
@@ -23,6 +24,8 @@ import { ContentReveal } from "@/components/effects/content-reveal";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { AccountViews } from "@/features/workspace/model";
+import { accountDeleting } from "./account-deletion";
+import { AccountDeletionProgressDetails } from "./account-deletion-progress";
 import type { RedeemAttemptFeed } from "@/features/workspace/basic/redeem-attempts-model";
 import { DashboardTabBar, type DashboardTabId } from "@/features/account-workspace/dashboard-tab-bar";
 import {
@@ -73,6 +76,7 @@ export function AccountDetailView({
   onRefresh,
   onAction,
   onDelete,
+  onReauthenticate,
   onPolicyChange,
   onPolicySave,
   onLoadMoreLogs,
@@ -99,6 +103,7 @@ export function AccountDetailView({
   onRefresh: () => void;
   onAction: (action: "login" | "logout") => Promise<void>;
   onDelete: () => void;
+  onReauthenticate: () => void;
   onPolicyChange: (policy: Policy | null) => void;
   onPolicySave: () => void;
   onLoadMoreLogs: () => void;
@@ -123,6 +128,21 @@ export function AccountDetailView({
     window.scrollTo({ top: 0 });
   }, [account.id]);
 
+  if (accountDeleting(account, status)) {
+    const failed = status?.deletionFailed ?? account.deletionFailed;
+    return <Card className="cloud-surface">
+      <CardContent className="space-y-3 p-4" role="status">
+        <Button variant="ghost" onClick={onBack}><ArrowLeft className="size-4" />返回账号列表</Button>
+        <h1 className="text-lg font-semibold">{account.name} · 正在删除</h1>
+        <p className="text-sm text-muted-foreground">{failed
+          ? "后台清理暂未完成，系统会自动重试，无需反复点击删除。"
+          : "正在停止账号并分批清理本地记录，完成后会自动移出列表。"}</p>
+        <AccountDeletionProgressDetails progress={status?.deletionProgress} />
+        <p className="text-sm text-muted-foreground">可以关闭页面。清理期间不能操作或重新添加该账号；服务重启后会继续清理，不会删除游戏角色。</p>
+      </CardContent>
+    </Card>;
+  }
+
   return (
     <div className="flex min-h-0 w-full min-w-0 max-w-full flex-col gap-3 sm:gap-4 xl:h-full xl:overflow-hidden">
       <div className="shrink-0">
@@ -135,6 +155,7 @@ export function AccountDetailView({
           onRefresh={onRefresh}
           onAction={onAction}
           onDelete={onDelete}
+          onReauthenticate={onReauthenticate}
         />
       </div>
       <DashboardTabBar activeTab={activeTab} onChange={onTabChange} />
@@ -181,6 +202,7 @@ function HeaderPanel({
   onRefresh,
   onAction,
   onDelete,
+  onReauthenticate,
 }: {
   account: Account;
   status?: AccountStatus;
@@ -190,6 +212,7 @@ function HeaderPanel({
   onRefresh: () => void;
   onAction: (action: "login" | "logout") => Promise<void>;
   onDelete: () => void;
+  onReauthenticate: () => void;
 }) {
   const connected = accountConnected(account, status);
   const sessionAction = connected ? "logout" : "login";
@@ -227,12 +250,15 @@ function HeaderPanel({
               size="icon-lg"
               className="size-8 sm:size-9"
               onClick={() => void onAction(sessionAction)}
-              disabled={busyAction === sessionAction}
+              disabled={!!busyAction}
             >
               {busyAction === sessionAction ? <Loader2 className="size-4 animate-spin" /> : connected ? <LogOut className="size-4" /> : <Play className="size-4" />}
             </IconButtonWithTooltip>
-            <IconButtonWithTooltip label="删除账号" type="button" variant="destructive" size="icon-lg" className="size-8 sm:size-9" onClick={onDelete} disabled={busyAction === "delete"}>
-              <Trash2 className="size-4" />
+            <IconButtonWithTooltip label="重新登录／更新凭据" type="button" variant="outline" size="icon-lg" className="size-8 sm:size-9" onClick={onReauthenticate} disabled={!!busyAction}>
+              <KeyRound className="size-4" />
+            </IconButtonWithTooltip>
+            <IconButtonWithTooltip label={busyAction === "delete" ? "正在删除账号" : "删除账号"} type="button" variant="destructive" size="icon-lg" className="size-8 sm:size-9" onClick={onDelete} disabled={!!busyAction}>
+              {busyAction === "delete" ? <Loader2 className="size-4 animate-spin motion-reduce:animate-none" /> : <Trash2 className="size-4" />}
             </IconButtonWithTooltip>
           </div>
         </div>

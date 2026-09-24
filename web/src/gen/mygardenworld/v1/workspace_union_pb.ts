@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file mygardenworld/v1/workspace_union.proto.
  */
 export const file_mygardenworld_v1_workspace_union: GenFile = /*@__PURE__*/
-  fileDesc("CiZteWdhcmRlbndvcmxkL3YxL3dvcmtzcGFjZV91bmlvbi5wcm90bxIQbXlnYXJkZW53b3JsZC52MSLPAwoJVW5pb25WaWV3EhIKCmFjY291bnRfaWQYASABKAMSFAoMYWNjb3VudF9uYW1lGAIgASgJEi8KC2NhcHR1cmVkX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIbChNtZW1iZXJzaGlwX29ic2VydmVkGAQgASgIEhAKCGluX3VuaW9uGAUgASgIEhAKCHVuaW9uX2lkGAYgASgFEisKBHJhY2UYByABKAsyHS5teWdhcmRlbndvcmxkLnYxLkZtbFJhY2VWaWV3EiwKBWxhbmRzGAggAygLMh0ubXlnYXJkZW53b3JsZC52MS5GbWxMYW5kVmlldxIWCg5sYW5kc19vYnNlcnZlZBgJIAEoCBIgChhtZW1iZXJfcG9zaXRpb25fb2JzZXJ2ZWQYCiABKAgSFwoPbWVtYmVyX3Bvc2l0aW9uGAsgASgFEh0KFW1lbWJlcl9wb3NpdGlvbl9sYWJlbBgMIAEoCRIbChNyYWNlX2RlbGV0ZV9hbGxvd2VkGA0gASgIEjwKC3ZpZGVvX2J1aWxkGA4gASgLMicubXlnYXJkZW53b3JsZC52MS5WaWRlb0FjdGlvblN0YXR1c1ZpZXcioAMKC0ZtbFJhY2VWaWV3EhAKCG9ic2VydmVkGAEgASgIEhQKDGJhdGNoX2FjdGl2ZRgCIAEoCBItCgV0YWtlbhgDIAEoCzIeLm15Z2FyZGVud29ybGQudjEuRm1sUmFjZVRha2VuEiwKBXRhc2tzGAQgAygLMh0ubXlnYXJkZW53b3JsZC52MS5GbWxSYWNlVGFzaxIWCg5iYXRjaF9zdGFydF9tcxgFIAEoAxIUCgxiYXRjaF9lbmRfbXMYBiABKAMSFAoMYmF0Y2hfc3RhdHVzGAcgASgFEhoKEnRhc2tzX3N5bmNlZF9hdF9tcxgIIAEoAxIbChN0YXNrX3F1b3RhX29ic2VydmVkGAkgASgIEhkKEWZpbmlzaGVkX3Rhc2tfbnVtGAogASgFEhYKDnRvdGFsX3Rhc2tfbnVtGAsgASgFEhAKCHJhY2VfbHZsGAwgASgFEg0KBXNjb3JlGA0gASgFEhYKDnNjb3JlX29ic2VydmVkGA4gASgIEgwKBHJhbmsYDyABKAUSFQoNcmFua19vYnNlcnZlZBgQIAEoCCL8AQoLRm1sUmFjZVRhc2sSDQoFbXNfaWQYASABKAMSDwoHdGFza19pZBgCIAEoBRISCgp0YXNrX2xhYmVsGAMgASgJEg0KBXNjb3JlGAQgASgFEhIKCmlzX3VwZ3JhZGUYBSABKAgSEwoLdXBncmFkZV91aWQYBiABKAMSEQoJdGFza190eXBlGAcgASgFEhQKDHRhcmdldF9sYWJlbBgIIAEoCRIWCg5hcHBlYXJfdGltZV9tcxgJIAEoAxIYChB0YWtlX3NraXBfcmVhc29uGAogASgJEhIKCnRhcmdldF9jbnQYCyABKAUSEgoKZmluaXNoX2NudBgMIAEoBSLRAQoMRm1sUmFjZVRha2VuEhAKCGhhc190YXNrGAEgASgIEhIKCnRhc2tfbXNfaWQYAiABKAMSDwoHdGFza19pZBgDIAEoBRISCgp0YXNrX2xhYmVsGAQgASgJEhIKCnRhcmdldF9jbnQYBSABKAUSEgoKZmluaXNoX2NudBgGIAEoBRINCgVzY29yZRgHIAEoBRIRCgl0YXNrX3R5cGUYCCABKAUSFAoMdGFyZ2V0X2xhYmVsGAkgASgJEhYKDmV4cGlyZV90aW1lX21zGAogASgDIroCCgtGbWxMYW5kVmlldxIPCgdsYW5kX2lkGAEgASgFEg0KBWxldmVsGAIgASgFEhEKCWZsb3dlcl9pZBgDIAEoBRIVCg1zdGFydF90aW1lX21zGAQgASgDEhsKE21hdHVyZV9mbG93ZXJfY291bnQYBSABKAUSFwoPaGFydmVzdGVkX2NvdW50GAYgASgFEhkKEWxhc3RfY2FsY190aW1lX21zGAcgASgDEhcKD3BlbmRpbmdfaGFydmVzdBgIIAEoBRIRCglzdG9ja19jYXAYCSABKAUSEAoIdGltZV9zZWMYCiABKAUSFgoObmV4dF9tYXR1cmVfbXMYCyABKAMSFgoOcmVjb21tZW5kYXRpb24YDCABKAkSDgoGcmVhc29uGA0gASgJEhIKCmZsb3dlcl9sdmwYDiABKAVCjAEKFGNvbS5teWdhcmRlbndvcmxkLnYxQhNXb3Jrc3BhY2VVbmlvblByb3RvUAGiAgNNWFiqAhBNeWdhcmRlbndvcmxkLlYxygIQTXlnYXJkZW53b3JsZFxWMeICHE15Z2FyZGVud29ybGRcVjFcR1BCTWV0YWRhdGHqAhFNeWdhcmRlbndvcmxkOjpWMWIGcHJvdG8z", [file_google_protobuf_timestamp, file_mygardenworld_v1_workspace_common]);
+  fileDesc("CiZteWdhcmRlbndvcmxkL3YxL3dvcmtzcGFjZV91bmlvbi5wcm90bxIQbXlnYXJkZW53b3JsZC52MSLPAwoJVW5pb25WaWV3EhIKCmFjY291bnRfaWQYASABKAMSFAoMYWNjb3VudF9uYW1lGAIgASgJEi8KC2NhcHR1cmVkX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIbChNtZW1iZXJzaGlwX29ic2VydmVkGAQgASgIEhAKCGluX3VuaW9uGAUgASgIEhAKCHVuaW9uX2lkGAYgASgFEisKBHJhY2UYByABKAsyHS5teWdhcmRlbndvcmxkLnYxLkZtbFJhY2VWaWV3EiwKBWxhbmRzGAggAygLMh0ubXlnYXJkZW53b3JsZC52MS5GbWxMYW5kVmlldxIWCg5sYW5kc19vYnNlcnZlZBgJIAEoCBIgChhtZW1iZXJfcG9zaXRpb25fb2JzZXJ2ZWQYCiABKAgSFwoPbWVtYmVyX3Bvc2l0aW9uGAsgASgFEh0KFW1lbWJlcl9wb3NpdGlvbl9sYWJlbBgMIAEoCRIbChNyYWNlX2RlbGV0ZV9hbGxvd2VkGA0gASgIEjwKC3ZpZGVvX2J1aWxkGA4gASgLMicubXlnYXJkZW53b3JsZC52MS5WaWRlb0FjdGlvblN0YXR1c1ZpZXci2QMKC0ZtbFJhY2VWaWV3EhoKEmF1dG9fZGVsZXRlX3N0YXR1cxgRIAEoCRIbChNhdXRvX3VwZ3JhZGVfc3RhdHVzGBIgASgJEhAKCG9ic2VydmVkGAEgASgIEhQKDGJhdGNoX2FjdGl2ZRgCIAEoCBItCgV0YWtlbhgDIAEoCzIeLm15Z2FyZGVud29ybGQudjEuRm1sUmFjZVRha2VuEiwKBXRhc2tzGAQgAygLMh0ubXlnYXJkZW53b3JsZC52MS5GbWxSYWNlVGFzaxIWCg5iYXRjaF9zdGFydF9tcxgFIAEoAxIUCgxiYXRjaF9lbmRfbXMYBiABKAMSFAoMYmF0Y2hfc3RhdHVzGAcgASgFEhoKEnRhc2tzX3N5bmNlZF9hdF9tcxgIIAEoAxIbChN0YXNrX3F1b3RhX29ic2VydmVkGAkgASgIEhkKEWZpbmlzaGVkX3Rhc2tfbnVtGAogASgFEhYKDnRvdGFsX3Rhc2tfbnVtGAsgASgFEhAKCHJhY2VfbHZsGAwgASgFEg0KBXNjb3JlGA0gASgFEhYKDnNjb3JlX29ic2VydmVkGA4gASgIEgwKBHJhbmsYDyABKAUSFQoNcmFua19vYnNlcnZlZBgQIAEoCCKzAgoLRm1sUmFjZVRhc2sSDQoFbXNfaWQYASABKAMSDwoHdGFza19pZBgCIAEoBRISCgp0YXNrX2xhYmVsGAMgASgJEg0KBXNjb3JlGAQgASgFEhIKCmlzX3VwZ3JhZGUYBSABKAgSEwoLdXBncmFkZV91aWQYBiABKAMSEQoJdGFza190eXBlGAcgASgFEhQKDHRhcmdldF9sYWJlbBgIIAEoCRIWCg5hcHBlYXJfdGltZV9tcxgJIAEoAxIYChB0YWtlX3NraXBfcmVhc29uGAogASgJEhIKCnRhcmdldF9jbnQYCyABKAUSEgoKZmluaXNoX2NudBgMIAEoBRIWCg5kZWxldGVfYWxsb3dlZBgNIAEoCBIdChVkZWxldGVfYmxvY2tlZF9yZWFzb24YDiABKAki0QEKDEZtbFJhY2VUYWtlbhIQCghoYXNfdGFzaxgBIAEoCBISCgp0YXNrX21zX2lkGAIgASgDEg8KB3Rhc2tfaWQYAyABKAUSEgoKdGFza19sYWJlbBgEIAEoCRISCgp0YXJnZXRfY250GAUgASgFEhIKCmZpbmlzaF9jbnQYBiABKAUSDQoFc2NvcmUYByABKAUSEQoJdGFza190eXBlGAggASgFEhQKDHRhcmdldF9sYWJlbBgJIAEoCRIWCg5leHBpcmVfdGltZV9tcxgKIAEoAyK6AgoLRm1sTGFuZFZpZXcSDwoHbGFuZF9pZBgBIAEoBRINCgVsZXZlbBgCIAEoBRIRCglmbG93ZXJfaWQYAyABKAUSFQoNc3RhcnRfdGltZV9tcxgEIAEoAxIbChNtYXR1cmVfZmxvd2VyX2NvdW50GAUgASgFEhcKD2hhcnZlc3RlZF9jb3VudBgGIAEoBRIZChFsYXN0X2NhbGNfdGltZV9tcxgHIAEoAxIXCg9wZW5kaW5nX2hhcnZlc3QYCCABKAUSEQoJc3RvY2tfY2FwGAkgASgFEhAKCHRpbWVfc2VjGAogASgFEhYKDm5leHRfbWF0dXJlX21zGAsgASgDEhYKDnJlY29tbWVuZGF0aW9uGAwgASgJEg4KBnJlYXNvbhgNIAEoCRISCgpmbG93ZXJfbHZsGA4gASgFQowBChRjb20ubXlnYXJkZW53b3JsZC52MUITV29ya3NwYWNlVW5pb25Qcm90b1ABogIDTVhYqgIQTXlnYXJkZW53b3JsZC5WMcoCEE15Z2FyZGVud29ybGRcVjHiAhxNeWdhcmRlbndvcmxkXFYxXEdQQk1ldGFkYXRh6gIRTXlnYXJkZW53b3JsZDo6VjFiBnByb3RvMw", [file_google_protobuf_timestamp, file_mygardenworld_v1_workspace_common]);
 
 /**
  * @generated from message mygardenworld.v1.UnionView
@@ -110,6 +110,20 @@ export const UnionViewSchema: GenMessage<UnionView> = /*@__PURE__*/
  */
 export type FmlRaceView = Message<"mygardenworld.v1.FmlRaceView"> & {
   /**
+   * Planner-derived explanation of automatic deletion gates.
+   *
+   * @generated from field: string auto_delete_status = 17;
+   */
+  autoDeleteStatus: string;
+
+  /**
+   * Planner/runtime-derived upgrade gates, including the paid-attempt fence.
+   *
+   * @generated from field: string auto_upgrade_status = 18;
+   */
+  autoUpgradeStatus: string;
+
+  /**
    * @generated from field: bool observed = 1;
    */
   observed: boolean;
@@ -152,7 +166,7 @@ export type FmlRaceView = Message<"mygardenworld.v1.FmlRaceView"> & {
   tasksSyncedAtMs: bigint;
 
   /**
-   * True after NS25 field 110 (usr rcd) has been observed for task quota.
+   * True after the current batch's finished count is observed in NS25 110/116.
    *
    * @generated from field: bool task_quota_observed = 9;
    */
@@ -166,7 +180,7 @@ export type FmlRaceView = Message<"mygardenworld.v1.FmlRaceView"> & {
   finishedTaskNum: number;
 
   /**
-   * Total race task quota: c_fmlRace(raceLvl).taskNum (甲=18, 乙=15, …).
+   * Total race task quota: c_fmlRace(raceLvl).taskNum + purchased buyTaskNum.
    *
    * @generated from field: int32 total_task_num = 11;
    */
@@ -287,6 +301,20 @@ export type FmlRaceTask = Message<"mygardenworld.v1.FmlRaceTask"> & {
    * @generated from field: int32 finish_cnt = 12;
    */
   finishCnt: number;
+
+  /**
+   * Manual deletion is independent from the automatic low-score policy.
+   * It still requires a fresh task pool, an unclaimed task, and the current
+   * member position's c_fmlPos.p_raceDelete permission.
+   *
+   * @generated from field: bool delete_allowed = 13;
+   */
+  deleteAllowed: boolean;
+
+  /**
+   * @generated from field: string delete_blocked_reason = 14;
+   */
+  deleteBlockedReason: string;
 };
 
 /**
@@ -390,13 +418,15 @@ export type FmlLandView = Message<"mygardenworld.v1.FmlLandView"> & {
   startTimeMs: bigint;
 
   /**
-   * Protocol matureFlwCnt; often stale until the client UI recalculates.
+   * Protocol matureFlwCnt: current unclaimed stock before elapsed production.
    *
    * @generated from field: int32 mature_flower_count = 5;
    */
   matureFlowerCount: number;
 
   /**
+   * Historical harvestedFlwCnt, independent of current stock.
+   *
    * @generated from field: int32 harvested_count = 6;
    */
   harvestedCount: number;
@@ -407,7 +437,7 @@ export type FmlLandView = Message<"mygardenworld.v1.FmlLandView"> & {
   lastCalcTimeMs: bigint;
 
   /**
-   * Unclaimed mature flowers (max of protocol delta and startTime+c_fmlLandLvl).
+   * Current stock plus production since lastCalcTime (or startTime), capped by stock_cap.
    *
    * @generated from field: int32 pending_harvest = 8;
    */

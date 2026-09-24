@@ -2,6 +2,7 @@ package state
 
 import (
 	"encoding/json"
+	"slices"
 	"time"
 
 	"github.com/SilkageNet/mygardenworld/internal/babigame"
@@ -23,6 +24,13 @@ func (s *State) ApplyV(rawV json.RawMessage) {
 // snapshot and must replace stale rows even when the new list is shorter.
 func (s *State) ApplyVFullFmlRaceTaskPool(rawV json.RawMessage) {
 	s.applyV(rawV, applyHints{fullFmlRaceTaskPool: true})
+}
+
+// ApplyVFmlMembership applies a successful, normalized fml.enter response.
+// Only this explicit read may use a returned guild record when mb is omitted;
+// cached guild records and ordinary namespace pushes cannot confirm membership.
+func (s *State) ApplyVFmlMembership(rawV json.RawMessage) {
+	s.applyV(rawV, applyHints{fullFmlMembership: true})
 }
 
 func (s *State) applyV(rawV json.RawMessage, hints applyHints) {
@@ -50,10 +58,15 @@ func (s *State) ApplyVMap(top map[string]any) {
 
 type applyHints struct {
 	fullFmlRaceTaskPool bool
+	fullFmlMembership   bool
 }
 
 func (s *State) applyTop(top map[string]json.RawMessage, hints applyHints) {
 	s.mu.Lock()
+	previousRace := s.fmlRace
+	if s.onRaceChange != nil {
+		previousRace.Tasks = slices.Clone(previousRace.Tasks)
+	}
 	now := time.Now().UnixMilli()
 	s.lastApplyMs = now
 
@@ -159,7 +172,7 @@ func (s *State) applyTop(top map[string]json.RawMessage, hints applyHints) {
 		s.applyPalaceOrderLocked(rawNS108)
 	}
 	if rawNS25, ok := top["25"]; ok {
-		s.applyFmlLocked(rawNS25, hints.fullFmlRaceTaskPool)
+		s.applyFmlLocked(rawNS25, hints)
 	}
 	if rawNS112, ok := top["112"]; ok {
 		s.applyShopGiftbagLocked(rawNS112)
@@ -230,9 +243,14 @@ func (s *State) applyTop(top map[string]json.RawMessage, hints applyHints) {
 	}
 
 	cb := s.onChange
+	raceCb := s.onRaceChange
+	raceChanged := raceCb != nil && raceDecisionChanged(previousRace, s.fmlRace)
 	s.bumpRevisionLocked()
 	s.mu.Unlock()
 
+	if raceChanged {
+		raceCb()
+	}
 	if cb != nil && len(changes) > 0 {
 		cb(changes)
 	}
@@ -242,4 +260,13 @@ func (s *State) applyTop(top map[string]json.RawMessage, hints applyHints) {
 	if inventoryCb != nil {
 		inventoryCb(inventorySnap)
 	}
+}
+
+func raceDecisionChanged(before, after FmlRaceView) bool {
+	return before.BatchID != after.BatchID || before.BatchStatus != after.BatchStatus ||
+		before.BatchStartMs != after.BatchStartMs || before.BatchEndMs != after.BatchEndMs ||
+		before.TasksObserved != after.TasksObserved || before.Taken != after.Taken ||
+		before.LocalFinishCnt != after.LocalFinishCnt || before.TaskQuotaObserved != after.TaskQuotaObserved ||
+		before.FinishedTaskNum != after.FinishedTaskNum || before.BuyTaskNum != after.BuyTaskNum ||
+		before.TakeQuotaExhausted != after.TakeQuotaExhausted || !slices.Equal(before.Tasks, after.Tasks)
 }

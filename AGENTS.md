@@ -48,11 +48,18 @@ deploy/          reverse-proxy examples for the HTTPS edge
 
 `internal/auth`, `internal/updater`, `internal/captureanalysis`, `internal/cataloggen`, and `internal/webui` contain bounded supporting services; keep executable entrypoints thin and place reusable behavior in `internal/` packages.
 
+- Keep dependency direction stable: `babigame` and `state` do not depend on planning, runners, persistence, or API services; `automation` does not call runners or persistence. `internal/architecture` tests guard these core directions.
+- Reuse `internal/outbound` for public-only user-configured HTTPS destinations. Provider payloads/retries stay in their domain services; explicitly private federation peers keep a separate, deliberate transport policy.
+- Enforce quotas and durable scheduling reservations in the same database write as the mutation. API prechecks improve feedback but are not concurrency guards.
+
 ## Product boundaries
 
+- System users, including admins, may only read or operate their own game accounts. Administrative user/quota management is not a game-account access bypass. Notification settings belong to the authenticated system user, apply only to that user's accounts, and never travel with game policy import/export/copy.
+- System maintenance is an operator-owned durable gate, not a bulk policy change. Acknowledge entry only after pending starts, identity/QR flows, RPCs and physical game connections have drained; Web exposes only the shared maintenance state.
 - Supported game channels are only iOS and Alipay. Alipay login is QR-driven and must not ask for a manual game username.
 - The Web product has eight top-level workspaces: basic, garden, orders, union, activities, warehouse, statistics, and logs.
 - Each business workspace owns its status and settings. Warehouse is inventory-only; statistics contains aggregated history; logs contains structured execution/runtime records and no settings.
+- Settings remain accessible without a live game session or confirmed membership/unlocks. Configuration access is not execution permission; runner and planner state gates remain authoritative.
 - Union land, construction, and race behavior require authoritative current-cycle membership evidence. Never plan union work from stale snapshots for an account that is not confirmed as a member.
 - Supported activities are 花笺集芳 (`tmpType 4002`) and 莳花纪闻 (`tmpType 4003`). Removed activities must not remain in policy, state, API, or UI compatibility paths.
 
@@ -67,13 +74,17 @@ deploy/          reverse-proxy examples for the HTTPS edge
 - State consumes namespace fragments, preserves raw observations for protocol gaps, and exposes typed domain views. Do not move automation decisions into API or Web presentation code.
 - Policy, planner, runner events, and Web filters share `basic`, `plant`, `order`, `water`, `union`, `race`, and `activity`; operational events use `account` and `system`.
 - Automation normally evaluates every 4 seconds. Hard state/resource gates precede harvest, planting/order deficits, watering, orders/flower art, cultivation/upgrades, basic rewards, union, secondary systems, and activities.
+- Per-account request pacing covers manual commands and executor-internal batches as well as scheduled operations. Heartbeat pacing stays independent, but maintenance and request-protection guards still apply to it. Local spacing is not evidence of a server-side safe threshold.
+- Race-state notifications only wake the existing serialized decision loop. Split independent scheduled RPC batches at safe result boundaries; never interrupt a paid mutation before confirmation. Reusing a race task pool requires recent full-list evidence, not a push timestamp, and does not replace send-time policy/task guards.
 - Every mutating operation with gold, diamond, item, water-drop, or count cost must pass observed-state resource gates. Diamond-cost operations remain blocked unless explicitly and safely implemented. Watering one land consumes one drop.
 
 ## Breaking changes and persistence
 
 - This prototype does not carry runtime backward compatibility. Do not add deprecated fields, Protobuf `reserved` declarations, legacy decoders, old policy aliases, or parallel API versions unless explicitly requested.
 - Breaking schema work stays in `mygardenworld.v1`. Regenerate both Go and TypeScript outputs and update all callers atomically.
-- SQLite uses transactional, ordered `PRAGMA user_version` migrations and currently targets schema v7. A database schema change requires a one-way migration and tests; unversioned legacy databases remain rejected.
+- SQLite uses transactional, ordered `PRAGMA user_version` migrations and currently targets schema v17. A database schema change requires a one-way migration and tests; unversioned legacy databases remain rejected.
+- Account deletion is durable intent followed by drained, bounded background cleanup. Pending accounts cannot start or accept mutations; do not reintroduce request-bound history cascades.
+- SQLite writes use one writer connection; reads use a bounded read-only pool. Route mutations with `RETURNING` explicitly to the writer. Inside transactions use only the transaction handle; do not re-enter store methods or call external services while holding a connection or transaction.
 - Policy is one strict protojson document in `account_policies.policy_json`. Public replace/import/export/copy operations handle the whole current policy.
 - Credentials and recoverable Sessions are encrypted with `garden.db.key`. Session restore is preferred; invalid server sessions fall back to the channel login flow.
 

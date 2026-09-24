@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/SilkageNet/mygardenworld/internal/automation"
+	"github.com/SilkageNet/mygardenworld/internal/babigame"
 	"github.com/SilkageNet/mygardenworld/internal/babigame/clientproto"
 	"github.com/SilkageNet/mygardenworld/internal/state"
 )
@@ -26,6 +27,7 @@ type operationAttempt struct {
 	friendStealUsedBeforeSet   bool
 	friendStealBoughtBefore    int32
 	friendStealBoughtBeforeSet bool
+	shopOfferBefore            *state.ShopCultivateOfferView
 }
 
 type operationResult struct {
@@ -40,31 +42,39 @@ type operationErrorKind string
 const customerOrderGenerationNoopCooldown = 10 * time.Minute
 
 const (
-	operationErrorOrdinary                  operationErrorKind = "ordinary"
-	operationErrorHarvestNotMature          operationErrorKind = "harvest_not_mature"
-	operationErrorResidentOrderCooldown     operationErrorKind = "resident_order_cooldown"
-	operationErrorResidentOrderDailyLimit   operationErrorKind = "resident_order_daily_limit"
-	operationErrorWaterwheelInvalidData     operationErrorKind = "waterwheel_invalid_data"
-	operationErrorWaterwheelDailyLimit      operationErrorKind = "waterwheel_daily_limit"
-	operationErrorShopCultivateExhausted    operationErrorKind = "shop_cultivate_exhausted"
-	operationErrorWaterDropRejected         operationErrorKind = "water_drop_rejected"
-	operationErrorCultivateUpgradeRejected  operationErrorKind = "cultivate_upgrade_resource_rejected"
-	operationErrorFlowerArtMaterialRejected operationErrorKind = "flower_art_material_rejected"
-	operationErrorTaskGroupFinished         operationErrorKind = "task_group_finished"
-	operationErrorRaceTakeAlreadyTaken      operationErrorKind = "race_take_already_taken"
-	operationErrorRaceTakeClaimedByOther    operationErrorKind = "race_take_claimed_by_other"
-	operationErrorRaceTakeQuotaExceeded     operationErrorKind = "race_take_quota_exceeded"
-	operationErrorRaceTakeOnCooldown        operationErrorKind = "race_take_on_cooldown"
-	operationErrorRaceDeleteOnCooldown      operationErrorKind = "race_delete_on_cooldown"
-	operationErrorFmlBuildDailyLimit        operationErrorKind = "fml_build_daily_limit"
-	operationErrorFmlNotJoined              operationErrorKind = "fml_not_joined"
-	operationErrorFmlFlowerTakeDailyLimit   operationErrorKind = "fml_flower_take_daily_limit"
-	operationErrorCyclicStoryOrderNotReady  operationErrorKind = "cyclic_story_order_not_ready"
-	operationErrorMailAlreadyPicked         operationErrorKind = "mail_already_picked"
+	operationErrorOrdinary                   operationErrorKind = "ordinary"
+	operationErrorZooFoodRejected            operationErrorKind = "zoo_food_rejected"
+	operationErrorHarvestNotMature           operationErrorKind = "harvest_not_mature"
+	operationErrorResidentOrderCooldown      operationErrorKind = "resident_order_cooldown"
+	operationErrorResidentOrderDailyLimit    operationErrorKind = "resident_order_daily_limit"
+	operationErrorWaterwheelInvalidData      operationErrorKind = "waterwheel_invalid_data"
+	operationErrorWaterwheelDailyLimit       operationErrorKind = "waterwheel_daily_limit"
+	operationErrorShopCultivateExhausted     operationErrorKind = "shop_cultivate_exhausted"
+	operationErrorWaterDropRejected          operationErrorKind = "water_drop_rejected"
+	operationErrorCultivateUpgradeRejected   operationErrorKind = "cultivate_upgrade_resource_rejected"
+	operationErrorFlowerArtMaterialRejected  operationErrorKind = "flower_art_material_rejected"
+	operationErrorTaskGroupFinished          operationErrorKind = "task_group_finished"
+	operationErrorRaceTakeAlreadyTaken       operationErrorKind = "race_take_already_taken"
+	operationErrorRaceTakeClaimedByOther     operationErrorKind = "race_take_claimed_by_other"
+	operationErrorRaceTakeQuotaExceeded      operationErrorKind = "race_take_quota_exceeded"
+	operationErrorRaceTakeOnCooldown         operationErrorKind = "race_take_on_cooldown"
+	operationErrorRaceDeleteOnCooldown       operationErrorKind = "race_delete_on_cooldown"
+	operationErrorFmlBuildDailyLimit         operationErrorKind = "fml_build_daily_limit"
+	operationErrorFmlNotJoined               operationErrorKind = "fml_not_joined"
+	operationErrorFmlFlowerTakeDailyLimit    operationErrorKind = "fml_flower_take_daily_limit"
+	operationErrorCyclicStoryOrderNotReady   operationErrorKind = "cyclic_story_order_not_ready"
+	operationErrorMailAlreadyPicked          operationErrorKind = "mail_already_picked"
+	operationErrorPearlHireCandidateFallback operationErrorKind = "pearl_hire_candidate_fallback"
 )
 
 func classifyOperationError(kind string, err error) operationErrorKind {
+	var foodRejected *zooFoodRejectedError
+	if kind == clientproto.RPCZooAddFoodstuff.String() && errors.As(err, &foodRejected) {
+		return operationErrorZooFoodRejected
+	}
 	switch {
+	case isPearlHireCandidateFallbackError(kind, err):
+		return operationErrorPearlHireCandidateFallback
 	case isHarvestOp(kind) && isFlowerNotMatureError(err):
 		return operationErrorHarvestNotMature
 	case isResidentOrderCooldownError(kind, err):
@@ -169,9 +179,26 @@ func (r *Runner) emitOperationPlanned(attempt operationAttempt) {
 
 func (r *Runner) handleOperationError(ctx context.Context, result operationResult) error {
 	op, args, err := result.op, result.args, result.err
+	if result.shopOfferBefore != nil {
+		payload, _ := json.Marshal(map[string]any{
+			"offer_before": result.shopOfferBefore, "request": args, "error": err.Error(),
+			"started_at": result.startedAt, "finished_at": result.finishedAt,
+			"pacing": r.pacer.diagnostic(op.Kind),
+		})
+		r.emit(Event{Kind: "shop_purchase_diagnostic", Category: op.Category, Domain: op.Domain,
+			Action: "diagnostic", Label: "材料商城诊断", Level: "warn",
+			Message: "购买失败，已记录购买前商品价格/次数与请求间隔；间隔不是已知服务端阈值", PayloadJSON: string(payload)})
+	}
 	switch classifyOperationError(op.Kind, err) {
-	case operationErrorFmlNotJoined:
-		r.state.MarkNoFmlMembership()
+	case operationErrorPearlHireCandidateFallback:
+		var fallbackErr *pearlHireCandidateFallbackError
+		_ = errors.As(err, &fallbackErr)
+		ticketResult := "未观察到雇佣券扣除"
+		ticketSpent := false
+		if fallbackErr != nil && fallbackErr.TicketSpent {
+			ticketResult = "本次已消耗 1 张雇佣券并计入今日用量"
+			ticketSpent = true
+		}
 		r.clearOperationCooldown(op)
 		r.emit(Event{
 			Kind:        "operation_deferred",
@@ -179,7 +206,36 @@ func (r *Runner) handleOperationError(ctx context.Context, result operationResul
 			Domain:      op.Domain,
 			Action:      "blocked",
 			Label:       operationEventLabel(op),
-			Message:     fmt.Sprintf("%s 已跳过: 账号未加入公会，已停止公会相关自动化", opDesc(op)),
+			Message:     fmt.Sprintf("%s 已跳过: 服务端提示该候选需改用金币雇佣，%s；已继续检查其他候选，未自动使用金币", opDesc(op), ticketResult),
+			PayloadJSON: operationPayload(op, args, nil, err),
+			Level:       "warn",
+		})
+		r.logOperation(ctx, op.Kind, args, map[string]any{
+			"error":       err.Error(),
+			"stage":       "candidate_gold_fallback",
+			"ticketSpent": ticketSpent,
+			"placeId":     op.TargetID,
+			"targetUid":   op.TargetUID,
+		})
+		return nil
+	case operationErrorFmlNotJoined:
+		before := r.state.FmlBuild()
+		var rpcErr *babigame.RPCServerError
+		errors.As(err, &rpcErr)
+		if rpcErr.Name == clientproto.RPCFmlEnter {
+			r.state.MarkNoFmlMembershipAt(result.finishedAt)
+		} else {
+			r.state.MarkFmlMembershipUncertainAt(result.finishedAt)
+		}
+		r.emitFmlMembershipDiagnostic(rpcErr.Name.String(), before, err)
+		r.clearOperationCooldown(op)
+		r.emit(Event{
+			Kind:        "operation_deferred",
+			Category:    op.Category,
+			Domain:      op.Domain,
+			Action:      "blocked",
+			Label:       operationEventLabel(op),
+			Message:     fmt.Sprintf("%s 已跳过: 服务端返回未加入公会，已暂停公会操作并安排低频身份确认", opDesc(op)),
 			PayloadJSON: operationPayload(op, args, nil, err),
 			Level:       "warn",
 		})
@@ -326,6 +382,24 @@ func (r *Runner) handleOperationError(ctx context.Context, result operationResul
 		})
 		r.logOperation(ctx, op.Kind, args, map[string]any{"error": err.Error(), "stage": "offer_exhausted", "shopId": op.TargetID})
 		return nil
+	case operationErrorZooFoodRejected:
+		var rejected *zooFoodRejectedError
+		if !errors.As(err, &rejected) {
+			return err
+		}
+		details := map[string]any{"stage": "zoo_food_stock_rejected", "petId": rejected.PetID, "itemId": rejected.ItemID,
+			"requested": rejected.Requested, "stockBefore": rejected.StockBefore, "bowlBefore": rejected.BowlBefore,
+			"capacity": state.ZooFoodBowlCapacity(), "refreshError": rejected.RefreshError}
+		hint := "已刷新食盆，下轮按库存与购买设置重新决策"
+		if rejected.RefreshError != "" {
+			hint = "食盆刷新失败，等待后续状态更新"
+		}
+		payload, _ := json.Marshal(details)
+		r.emit(Event{Kind: "operation_deferred", Category: op.Category, Domain: op.Domain, Action: "blocked", Label: operationEventLabel(op), Level: "warn",
+			Message:     fmt.Sprintf("补充宠物食盆暂缓：服务端提示%s数量不足（请求 %d，本地原记录 %d），过期库存暂按不可用处理；%s", state.ItemLabel(rejected.ItemID), rejected.Requested, rejected.StockBefore, hint),
+			PayloadJSON: operationPayload(op, args, payload, err)})
+		r.logOperation(ctx, op.Kind, args, details)
+		return nil
 	case operationErrorWaterDropRejected:
 		r.state.MarkWaterDropsExhausted(result.finishedAt)
 		r.emit(Event{
@@ -430,7 +504,7 @@ func (r *Runner) handleOperationError(ctx context.Context, result operationResul
 			Category:    op.Category,
 			Domain:      op.Domain,
 			Action:      "blocked",
-			Message:     fmt.Sprintf("%s 暂停: 服务端提示任务接取次数已达上限，本轮竞赛不再自动接取", opDesc(op)),
+			Message:     fmt.Sprintf("%s 暂停: 服务端提示任务接取次数已达上限，将低频同步次数；确认新增可用次数后恢复接取，不会自动购买", opDesc(op)),
 			PayloadJSON: operationPayload(op, args, nil, err),
 			Level:       "warn",
 		})
@@ -563,6 +637,15 @@ func (r *Runner) handleOperationError(ctx context.Context, result operationResul
 		r.logOperation(ctx, op.Kind, args, map[string]any{"error": err.Error(), "stage": "mail_already_picked", "msId": op.TargetID, "allId": op.ItemID})
 		return nil
 	default:
+		if isHarvestOp(op.Kind) {
+			wait := r.deferFailedHarvest(op, err, result.finishedAt)
+			r.emit(Event{Kind: "operation_deferred", Category: op.Category, Domain: op.Domain,
+				Action: "blocked", Label: operationEventLabel(op), Level: "warn",
+				Message:     fmt.Sprintf("%s 暂缓: %v；失败田地将在 %d 秒后重试，其他操作继续", opDesc(op), err, int(wait.Seconds())),
+				PayloadJSON: operationPayload(op, args, result.raw, err)})
+			r.logOperation(ctx, op.Kind, args, map[string]any{"error": err.Error(), "retryAfterSeconds": int(wait.Seconds())})
+			return nil
+		}
 		if op.Kind == clientproto.RPCFmlRaceGetTaskList.String() ||
 			op.Kind == clientproto.RPCFmlRaceEnter.String() {
 			return r.handleRaceSyncFailure(ctx, result, "race_sync_retry")
@@ -686,8 +769,32 @@ func operationPayload(op *automation.PlannedOp, args any, raw json.RawMessage, e
 		"vaseId":         op.VaseID,
 		"flowerIds":      op.FlowerIDs,
 	}
+	if op.RaceTaskGuard != nil {
+		payload["raceTaskGuard"] = op.RaceTaskGuard
+	}
+	if op.RaceBatchID != 0 {
+		payload["raceBatchId"] = op.RaceBatchID
+	}
+	if op.TaskMsID != 0 {
+		payload["taskMsId"] = op.TaskMsID
+	}
+	if op.DiamondCost > 0 {
+		payload["diamondCost"] = op.DiamondCost
+	}
 	if len(raw) > 0 {
-		payload["raw"] = json.RawMessage(raw)
+		// Successful read-side syncs only need their outcome and request metadata;
+		// full snapshots live in State. Keep bounded raw evidence for mutations
+		// and failures, with an explicit marker instead of invalid JSON truncation.
+		switch {
+		case err == nil && op.Action == "sync":
+			payload["rawOmitted"] = "successful_sync"
+			payload["rawBytes"] = len(raw)
+		case len(raw) > 32<<10:
+			payload["rawOmitted"] = "size_limit"
+			payload["rawBytes"] = len(raw)
+		default:
+			payload["raw"] = json.RawMessage(raw)
+		}
 	}
 	if !op.CooldownUntil.IsZero() {
 		payload["cooldownUntilMs"] = op.CooldownUntil.UnixMilli()

@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { createClient } from "@connectrpc/connect";
 import { timestampDate, timestampFromDate } from "@bufbuild/protobuf/wkt";
 import {
   ChevronLeft,
+  ChevronRight,
   ClipboardPaste,
   Clock3,
   Cloud,
@@ -14,6 +15,7 @@ import {
   Globe2,
   InfinityIcon,
   LoaderCircle,
+  Pencil,
   RefreshCw,
   Send,
   Settings2,
@@ -26,6 +28,7 @@ import { UserRole } from "@/gen/mygardenworld/v1/auth_pb";
 import { Channel } from "@/gen/mygardenworld/v1/channel_pb";
 import {
   RedeemExchangeService,
+  RedeemBrowseFilter,
   RedeemSubmitDisposition,
   RedeemValidation,
   type RedeemCode,
@@ -40,12 +43,16 @@ import { formatAPIError, transport } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/context";
 import { cn } from "@/lib/utils";
 import {
+  DEFAULT_REDEEM_PAGE_SIZE,
   EXPIRY_PRESETS,
+  REDEEM_PAGE_SIZES,
+  redeemPageCount,
   redeemValidationLabel,
   resolveRedeemExpiry,
   type CustomUnit,
   type ExpiryMode,
 } from "./redeem-utils";
+import { RedeemExpiryDialog } from "./redeem-expiry-dialog";
 
 const redeemClient = createClient(RedeemExchangeService, transport);
 const adminClient = createClient(AdminService, transport);
@@ -56,6 +63,11 @@ export default function RedeemPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [showExpired, setShowExpired] = useState(false);
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(DEFAULT_REDEEM_PAGE_SIZE);
+  const [activeCount, setActiveCount] = useState(0);
+  const [historicalCount, setHistoricalCount] = useState(0);
+  const [editingEntry, setEditingEntry] = useState<RedeemCode>();
   const [code, setCode] = useState("");
   const [channels, setChannels] = useState<Channel[]>([Channel.IOS]);
   const [expiryMode, setExpiryMode] = useState<ExpiryMode>("30m");
@@ -63,34 +75,38 @@ export default function RedeemPage() {
   const [customUnit, setCustomUnit] = useState<CustomUnit>("minutes");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const loadRequestId = useRef(0);
 
   const loadEntries = useCallback(async () => {
+    const requestId = ++loadRequestId.current;
     setLoading(true);
     setError("");
     try {
-      let cursor = "";
-      const byFingerprint = new Map<string, RedeemCode>();
-      for (let page = 0; page < 20; page += 1) {
-        const response = await redeemClient.listRedeemCodes({
-          cursor,
-          pageSize: 500,
-          includeExpired: true,
-        });
-        for (const entry of response.entries) byFingerprint.set(entry.fingerprint, entry);
-        if (!response.nextCursor || response.nextCursor === cursor || response.entries.length < 500) break;
-        cursor = response.nextCursor;
+      const response = await redeemClient.browseRedeemCodes({
+        page,
+        pageSize,
+        filter: showExpired ? RedeemBrowseFilter.HISTORY : RedeemBrowseFilter.ACTIVE,
+      });
+      if (requestId !== loadRequestId.current) return;
+      const activeTotal = Number(response.activeTotal);
+      const historyTotal = Number(response.historyTotal);
+      const selectedTotal = showExpired ? historyTotal : activeTotal;
+      const lastPage = Math.max(0, Math.ceil(selectedTotal / pageSize) - 1);
+      setActiveCount(activeTotal);
+      setHistoricalCount(historyTotal);
+      if (page > lastPage) {
+        setEntries([]);
+        setPage(lastPage);
+        return;
       }
-      setEntries(Array.from(byFingerprint.values()).sort((left, right) => {
-        const leftTime = left.firstSeenAt ? timestampDate(left.firstSeenAt).getTime() : 0;
-        const rightTime = right.firstSeenAt ? timestampDate(right.firstSeenAt).getTime() : 0;
-        return rightTime - leftTime;
-      }));
+      setEntries(response.entries);
     } catch (err) {
+      if (requestId !== loadRequestId.current) return;
       setError(formatAPIError(err, "兑换码加载失败"));
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestId.current) setLoading(false);
     }
-  }, []);
+  }, [page, pageSize, showExpired]);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("redeem_expiry_mode") as ExpiryMode | null;
@@ -99,20 +115,14 @@ export default function RedeemPage() {
     }
     void loadEntries();
     const timer = window.setInterval(() => void loadEntries(), 60_000);
-    return () => window.clearInterval(timer);
+    return () => {
+      loadRequestId.current += 1;
+      window.clearInterval(timer);
+    };
   }, [loadEntries]);
 
-  const visibleEntries = useMemo(() => entries.filter((entry) => {
-    const expired = isRedeemExpired(entry);
-    const historical = expired || entry.validation === RedeemValidation.INVALID;
-    return showExpired ? historical : !historical;
-  }), [entries, showExpired]);
-
-  const activeCount = useMemo(
-    () => entries.filter((entry) => !isRedeemExpired(entry) && entry.validation !== RedeemValidation.INVALID).length,
-    [entries],
-  );
-  const historicalCount = entries.length - activeCount;
+  const selectedTotal = showExpired ? historicalCount : activeCount;
+  const totalPages = redeemPageCount(selectedTotal, pageSize);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -155,7 +165,13 @@ export default function RedeemPage() {
         : "兑换码已存在，验证状态已刷新");
       setCode("");
       window.localStorage.setItem("redeem_expiry_mode", expiryMode);
-      await loadEntries();
+      setShowExpired(false);
+      setPage(0);
+      if (showExpired || page !== 0) {
+        setLoading(true);
+        setEntries([]);
+      }
+      if (!showExpired && page === 0) await loadEntries();
     } catch (err) {
       setError(formatAPIError(err, "兑换码录入失败"));
     } finally {
@@ -277,14 +293,22 @@ export default function RedeemPage() {
 
           <Card className="cloud-surface min-h-[20rem] lg:min-h-[32rem]">
             <CardHeader className="border-b border-border/45 pb-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2.5">
                 <div className="flex items-center gap-2">
                   <span className="flex size-8 items-center justify-center rounded-md bg-sky-100 text-sky-600 dark:bg-sky-400/12 dark:text-sky-300"><Globe2 className="size-4" /></span>
-                  <div><CardTitle>社区兑换码</CardTitle><p className="mt-0.5 text-xs text-muted-foreground">当前有效 {activeCount} 条</p></div>
+                  <div><CardTitle>社区兑换码</CardTitle><p className="mt-0.5 text-xs text-muted-foreground">按最新收录排序</p></div>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <Button type="button" size="sm" variant={showExpired ? "outline" : "secondary"} onClick={() => setShowExpired(false)}>有效 {activeCount}</Button>
-                  <Button type="button" size="sm" variant={showExpired ? "secondary" : "outline"} onClick={() => setShowExpired(true)}>历史 {historicalCount}</Button>
+                <div className="flex w-full items-center gap-1.5 sm:w-auto">
+                  <div className="grid min-w-0 flex-1 grid-cols-2 rounded-md bg-secondary/55 p-0.5 sm:flex-none" role="group" aria-label="兑换码状态筛选">
+                    <Button type="button" size="sm" variant={showExpired ? "ghost" : "secondary"} className="min-w-0 shadow-none" aria-pressed={!showExpired} onClick={() => {
+                      if (!showExpired) { void loadEntries(); return; }
+                      setLoading(true); setEntries([]); setShowExpired(false); setPage(0);
+                    }}>有效 <span className="tabular-nums text-muted-foreground">{activeCount}</span></Button>
+                    <Button type="button" size="sm" variant={showExpired ? "secondary" : "ghost"} className="min-w-0 shadow-none" aria-pressed={showExpired} onClick={() => {
+                      if (showExpired) { void loadEntries(); return; }
+                      setLoading(true); setEntries([]); setShowExpired(true); setPage(0);
+                    }}>历史 <span className="tabular-nums text-muted-foreground">{historicalCount}</span></Button>
+                  </div>
                   <Button type="button" size="icon-sm" variant="ghost" onClick={() => void loadEntries()} disabled={loading} aria-label="刷新兑换码"><RefreshCw className={cn("size-4", loading && "animate-spin")} /></Button>
                 </div>
               </div>
@@ -292,11 +316,43 @@ export default function RedeemPage() {
             <CardContent className="p-0">
               {loading && entries.length === 0 ? (
                 <EmptyState icon={<LoaderCircle className="size-5 animate-spin" />} title="正在同步兑换码" description="读取当前节点公开注册表" />
-              ) : visibleEntries.length === 0 ? (
+              ) : entries.length === 0 ? (
                 <EmptyState icon={<Cloud className="size-5" />} title={showExpired ? "暂无历史兑换码" : "暂无有效兑换码"} description="提交后会在这里展示验证进度" />
               ) : (
                 <div className="divide-y divide-border/45">
-                  {visibleEntries.map((entry) => <RedeemCodeRow key={entry.fingerprint} entry={entry} />)}
+                  {entries.map((entry) => <RedeemCodeRow key={entry.fingerprint} entry={entry} onEdit={user?.role === UserRole.ADMIN ? () => setEditingEntry(entry) : undefined} />)}
+                </div>
+              )}
+              {selectedTotal > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/45 bg-secondary/20 px-3 py-2 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-2">
+                    <span className="tabular-nums">共 {selectedTotal} 条</span>
+                    <span className="h-3.5 w-px bg-border" aria-hidden="true" />
+                    <span>每页</span>
+                    <div className="flex rounded-md bg-background/65 p-0.5" role="group" aria-label="每页兑换码条数">
+                      {REDEEM_PAGE_SIZES.map((size) => (
+                        <Button
+                          key={size}
+                          type="button"
+                          size="xs"
+                          variant={pageSize === size ? "secondary" : "ghost"}
+                          className="h-6 min-w-7 px-1.5 shadow-none"
+                          aria-pressed={pageSize === size}
+                          onClick={() => {
+                            if (pageSize === size) return;
+                            setLoading(true); setEntries([]); setPageSize(size); setPage(0);
+                          }}
+                        >
+                          {size}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                  <nav className="flex items-center gap-1" aria-label="兑换码分页">
+                    <Button type="button" size="sm" variant="ghost" className="h-7 px-1.5" onClick={() => { setLoading(true); setEntries([]); setPage((current) => Math.max(0, current - 1)); }} disabled={loading || page === 0} aria-label="上一页"><ChevronLeft className="size-3.5" /><span className="hidden min-[420px]:inline">上一页</span></Button>
+                    <span className="min-w-14 text-center tabular-nums text-foreground/80">{page + 1} / {totalPages}</span>
+                    <Button type="button" size="sm" variant="ghost" className="h-7 px-1.5" onClick={() => { setLoading(true); setEntries([]); setPage((current) => Math.min(totalPages - 1, current + 1)); }} disabled={loading || page + 1 >= totalPages} aria-label="下一页"><span className="hidden min-[420px]:inline">下一页</span><ChevronRight className="size-3.5" /></Button>
+                  </nav>
                 </div>
               )}
             </CardContent>
@@ -304,6 +360,7 @@ export default function RedeemPage() {
         </section>
 
         {user?.role === UserRole.ADMIN && <SourceManager />}
+        <RedeemExpiryDialog entry={editingEntry} onOpenChange={(open) => { if (!open) setEditingEntry(undefined); }} onSaved={loadEntries} />
       </div>
     </main>
   );
@@ -329,7 +386,7 @@ function ExpiryPreview({ mode, customAmount, customUnit }: { mode: ExpiryMode; c
   return <div className="flex items-start gap-1.5 text-xs leading-5 text-muted-foreground"><Clock3 className="mt-0.5 size-3.5 shrink-0" />{text}</div>;
 }
 
-function RedeemCodeRow({ entry }: { entry: RedeemCode }) {
+function RedeemCodeRow({ entry, onEdit }: { entry: RedeemCode; onEdit?: () => void }) {
   const expired = isRedeemExpired(entry);
   const communityVerified = Boolean(entry.communityVerifiedAt);
   const label = redeemValidationLabel(entry.validation, expired, communityVerified);
@@ -338,20 +395,27 @@ function RedeemCodeRow({ entry }: { entry: RedeemCode }) {
   const expiryText = expired
     ? entry.validation === RedeemValidation.EXPIRED ? "游戏已判定过期" : "已过期"
     : entry.permanent ? "未知期限" : entry.expiresAt ? formatRemaining(timestampDate(entry.expiresAt)) : "待确认";
+  const collectedAt = entry.firstSeenAt ? formatCompactTime(timestampDate(entry.firstSeenAt)) : "";
   return (
-    <article className="grid gap-2 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2">
-          <code className="break-all rounded bg-muted/70 px-2 py-1 font-mono text-sm font-semibold text-foreground">{entry.code}</code>
-          <Badge variant="outline">{entry.channel === Channel.IOS ? "iOS" : "Alipay"}</Badge>
+    <article className="flex min-w-0 items-start gap-2 px-3 py-2.5 sm:px-4">
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <code className="mr-0.5 break-all font-mono text-[0.82rem] font-semibold leading-5 text-foreground">{entry.code}</code>
+          <Badge variant="outline" className="px-1.5 font-medium text-muted-foreground">{entry.channel === Channel.IOS ? "iOS" : "Alipay"}</Badge>
           <Badge variant={destructive ? "destructive" : positive ? "secondary" : "outline"}>{label}</Badge>
+          {entry.expiryOverridden && <Badge variant="outline" className="font-medium">人工期限</Badge>}
         </div>
-        {entry.lastMessage && <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground">{entry.lastMessage}</p>}
+        <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[0.72rem] leading-4 text-muted-foreground">
+          <span className="inline-flex items-center gap-1">{positive ? <ShieldCheck className="size-3 text-emerald-500" /> : <Clock3 className="size-3" />}{expiryText}</span>
+          {collectedAt && <span>收录于 {collectedAt}</span>}
+        </div>
+        {entry.lastMessage && <p className="mt-1 truncate text-xs leading-4 text-muted-foreground/85" title={entry.lastMessage}>{entry.lastMessage}</p>}
       </div>
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground sm:justify-end">
-        {positive ? <ShieldCheck className="size-3.5 text-emerald-500" /> : <Clock3 className="size-3.5" />}
-        {expiryText}
-      </div>
+      {onEdit && (
+        <Button type="button" size="icon-sm" variant="ghost" className="-mr-1 shrink-0" onClick={onEdit} aria-label={`修正兑换码 ${entry.code} 的有效期`} title="修正有效期">
+          <Pencil className="size-3.5" />
+        </Button>
+      )}
     </article>
   );
 }
@@ -372,6 +436,15 @@ function formatRemaining(expiry: Date): string {
   const hours = Math.ceil(minutes / 60);
   if (hours < 48) return `${hours}小时后过期`;
   return `${Math.ceil(hours / 24)}天后过期`;
+}
+
+function formatCompactTime(value: Date): string {
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(value);
 }
 
 type SourceForm = {

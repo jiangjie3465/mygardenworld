@@ -10,6 +10,7 @@ import { PolicyGroup, StatusRow, TextRow, BigIntNumberRow, IntListRow, QualityRo
 import { FlowerArtMultiSelectRow, CatalogFlowerMultiSelectRow, FlowerMultiSelectRow } from "@/components/dashboard/flower-picker-controls";
 import FriendStealPolicyGroup from "@/features/account-workspace/friend-steal-policy-group";
 import { createPolicyEditor } from "./policy-editor";
+import PolicyJSONDialog from "./policy-json-dialog";
 import { AUTO_REPLANT_SELECTION_MODE_OPTIONS, MARKET_BUY_MODE_OPTIONS, MARKET_PUT_MODE_OPTIONS, RACE_TASK_TYPES, SELECTION_MODE_OPTIONS } from "./policy-options";
 
 const SHOW_UNSUPPORTED_SETTINGS = false;
@@ -148,6 +149,10 @@ export default function PolicyPanel({
           <SectionTitle icon={<ShieldCheck />}>运行参数</SectionTitle>
           <div className="grid gap-2">
             <NumberRow label="决策间隔" value={policy.decisionIntervalSeconds || 4} min={1} onChange={(value) => updatePolicy({ decisionIntervalSeconds: value })} />
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/60 p-3">
+            <div><div className="text-sm font-medium">账号配置分享</div><div className="text-xs text-muted-foreground">复制或粘贴所有模块的配置 JSON</div></div>
+            <PolicyJSONDialog policy={policy} disabled={saving} onImport={onPolicyChange} />
           </div>
         </section>}
 
@@ -336,6 +341,12 @@ export default function PolicyPanel({
                   })}
                   description="默认开启：有待处理兑换码时可建立游戏会话，可能挤下正在使用的游戏客户端。关闭后仅复用本来就在线的账号，兑换码会保留到下次上线。"
                 />
+                <ToggleRow
+                  label="5000 异常后允许重新登录"
+                  checked={basic?.serverErrorFreshLoginEnabled ?? false}
+                  onChange={(checked) => updateBasic({ serverErrorFreshLoginEnabled: checked })}
+            description="默认关闭。开启后，5000 首次保护冷却结束且额度可用时，直接重新认证，不先重试旧会话，可能挤下手机端。每次异常最多一次，两次尝试至少间隔 30 分钟；暂停时不尝试，暂停/启动不会重置冷却和额度。与自动挤号设置独立，业务核验通过后才恢复操作。"
+                />
               </div>
             </PolicyGroup>
 
@@ -499,6 +510,16 @@ export default function PolicyPanel({
                   description="0 不限；设 2 只做需 2/3 件花艺的单，设 3 只做需 3 件的单；已接竞赛顾客任务时不受此限"
                   onChange={(value) => updateCustomer({ minFlowerArtCount: value })}
                 />
+                <ToggleRow label="指定花坊币奖励" checked={customer?.exactFloralCoin !== undefined} onChange={(checked) => updateCustomer({ exactFloralCoin: checked ? BigInt(1) : undefined })} />
+                {customer?.exactFloralCoin !== undefined && (
+                  <BigIntNumberRow
+                    label="花坊币等于"
+                    value={customer.exactFloralCoin}
+                    min={0}
+                    description="按整单普通奖励精确匹配，不含广告翻倍；不匹配或奖励未知时保留订单，不制作、不交付、不自动拒绝。竞赛任务也遵守此条件；保留订单可能占满顾客名额。"
+                    onChange={(value) => updateCustomer({ exactFloralCoin: value })}
+                  />
+                )}
                 <ToggleRow label="暂时无货" checked={customer?.rejectUnavailableEnabled ?? false} onChange={(checked) => updateCustomer({ rejectUnavailableEnabled: checked })} />
                 <StatusRow label="今日进度" value={customerOrderStatusLabel} tone={customerOrderStatusTone} />
               </div>
@@ -621,16 +642,21 @@ export default function PolicyPanel({
                 <ToggleRow label="显示个人得分排名" checked={unionRace?.showPersonalScoreRank ?? false} description="开启后在竞赛页展示当期个人累计得分与公会内排名；默认关闭" onChange={(checked) => updateUnionRace({ showPersonalScoreRank: checked })} />
                 <ToggleRow label="自动完成" checked={unionRace?.autoEnableModules ?? false} description="自动接取、推进并提交竞赛任务；默认关闭。未开启时仍会同步并显示任务，但不会自动完成" onChange={(checked) => updateUnionRace({ autoEnableModules: checked })} />
                 <ToggleRow label="自动放弃" checked={unionRace?.autoGiveUpTask ?? false} description="独立于自动完成；放弃不符合当前分数、类型或完成条件的已接任务。也会作用于在游戏客户端手动接取的任务，默认关闭" onChange={(checked) => updateUnionRace({ autoGiveUpTask: checked })} />
-                <ToggleRow label="自动启停" checked={unionRace?.autoStopOnQuotaDone ?? true} description="任务次数做完后不再自动接取；已接任务仍会继续完成，开启自动放弃时也可能被放弃。关闭后仅在服务端提示次数用尽时停止接取" onChange={(checked) => updateUnionRace({ autoStopOnQuotaDone: checked })} />
+                <ToggleRow label="自动启停" checked={unionRace?.autoStopOnQuotaDone ?? true} description="按基础次数加游戏内已购买次数判断，全部用完后停止接取；同步到新增可用次数后继续，不会自动购买次数。已接任务仍继续处理。关闭后仅在服务端提示次数用尽时停止接取" onChange={(checked) => updateUnionRace({ autoStopOnQuotaDone: checked })} />
                 <ToggleRow label="避免接取已有进度任务" checked={unionRace?.avoidProgressedTasks ?? true} description="跳过其他成员退出后留下进度的任务，同时约束自动与手动接取；已经持有的任务不受影响" onChange={(checked) => updateUnionRace({ avoidProgressedTasks: checked })} />
                 <ToggleRow label="种植任务使用加速卡" checked={unionRace?.useSpeedupTicketInTask ?? false} description="已接种植收获任务全程可用加速卡。关闭时仍强制保底：任务最后 10 分钟自动对竞赛花使用加速卡" onChange={(checked) => updateUnionRace({ useSpeedupTicketInTask: checked })} />
                 <NumberRow label="最低任务分" value={unionRace?.minTaskScore ?? 0} min={0} description="自动接取会跳过分数不高于此值的任务；只有另行开启自动放弃后，已接任务才会受此限制。0 表示不限制" onChange={(value) => updateUnionRace({ minTaskScore: value })} />
                 <ToggleRow label="只接已升级任务" checked={unionRace?.onlyUpgradeTask ?? false} description="只接取已被升级的任务（积分加成更高）" onChange={(checked) => updateUnionRace({ onlyUpgradeTask: checked })} />
-                <ToggleRow label="排除他人升级任务" checked={unionRace?.excludeOthersUpgradeTask ?? true} onChange={(checked) => updateUnionRace({ excludeOthersUpgradeTask: checked })} />
-                <ToggleRow label="自动升级任务" checked={unionRace?.upgradeTask ?? false} onChange={(checked) => updateUnionRace({ upgradeTask: checked })} status={settingStatusForCapability(capabilities, "union.race.upgrade")} />
+                <ToggleRow label="排除他人升级任务" checked={unionRace?.excludeOthersUpgradeTask ?? true} description="仅排除明确由其他成员升级的任务；未记录升级人的任务仍按其余条件筛选，已被接取的任务始终跳过。适用于自动与手动接取，不影响已持有任务" onChange={(checked) => updateUnionRace({ excludeOthersUpgradeTask: checked })} />
+                <ToggleRow label="自动升级任务" checked={unionRace?.upgradeTask ?? false} description="独立于自动完成；升级当前持有的未完成任务，消耗元宝。结果未确认时不会重复提交" onChange={(checked) => updateUnionRace({ upgradeTask: checked })} status={settingStatusForCapability(capabilities, "union.race.upgrade")} />
+                <BigIntNumberRow label="单次升级元宝上限" description="0 表示禁止消费；每个任务升级前核对实际费用与可用余额" value={unionRace?.maxSpendDiamond ?? BigInt(0)} min={0} onChange={(value) => updateUnionRace({ maxSpendDiamond: value })} />
+                {unionRace?.upgradeTask && (unionRace.maxSpendDiamond <= BigInt(0)) && (
+                  <p role="status" className="rounded-md border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">已打开升级开关，但预算为 0，不会执行升级。请明确设置允许的单次元宝上限并保存。</p>
+                )}
+                {unionView?.race?.autoUpgradeStatus && <p className="px-3 text-xs text-muted-foreground">当前执行状态（已保存配置）：{unionView.race.autoUpgradeStatus}</p>}
                 <ToggleRow label="删除低分任务" checked={unionRace?.deleteLowScoreTask ?? false} description="独立于自动完成；定期删除无人接取且分数不高于上限的任务，仅会长和副会长可用" status={raceDeleteStatus} onChange={(checked) => updateUnionRace({ deleteLowScoreTask: checked })} />
                 <NumberRow label="删除分数上限" value={unionRace?.deleteTaskMaxScore ?? 0} min={0} description="只处理已同步、无人接取且分数明确大于 0 的任务；0 表示不删除" onChange={(value) => updateUnionRace({ deleteTaskMaxScore: value })} />
-                <BigIntNumberRow label="元宝上限" value={unionRace?.maxSpendDiamond ?? BigInt(0)} min={0} onChange={(value) => updateUnionRace({ maxSpendDiamond: value })} />
+                <NumberRow label="删除间隔（秒）" value={unionRace?.deleteIntervalSeconds || 120} min={30} max={3600} description="默认 120 秒，可设 30～3600 秒；自动与手动删除共用账号间隔，重启后仍保留。此为本地保护策略，不代表服务端安全阈值" onChange={(value) => updateUnionRace({ deleteIntervalSeconds: value })} />
               </div>
               <div className="mt-3 space-y-2">
                 <p className="text-xs text-muted-foreground">类型优先级：数字越大越优先接取；0 表示不接取。当前支持自动推进：种植收获、顾客订单、珍珠雇佣、花艺制作/售卖；花种培育仅接取与提交。</p>

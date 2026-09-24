@@ -269,33 +269,10 @@ var plannedOperationSpecs = map[string]operationSpec{
 			return rpc.Zoo().RefreshPetStatus(ctx, req)
 		},
 	),
-	clientproto.RPCZooAddFoodstuff.String(): stateDeltaOperation(
-		func(op *automation.PlannedOp) (clientproto.ZooAddFoodstuffRequest, error) {
-			if op.TargetID <= 0 {
-				return clientproto.ZooAddFoodstuffRequest{}, fmt.Errorf("addFoodstuff missing pet id")
-			}
-			if op.ItemID != 1501 && op.ItemID != 1502 {
-				return clientproto.ZooAddFoodstuffRequest{}, fmt.Errorf("addFoodstuff unsupported food id %d", op.ItemID)
-			}
-			if op.Count <= 0 {
-				return clientproto.ZooAddFoodstuffRequest{}, fmt.Errorf("addFoodstuff invalid count %d", op.Count)
-			}
-			if len(op.ItemCost) != 1 || op.ItemCost[op.ItemID] != op.Count {
-				return clientproto.ZooAddFoodstuffRequest{}, fmt.Errorf("addFoodstuff requires exact item cost %d:%d", op.ItemID, op.Count)
-			}
-			if plannedOpHasCyclicNoteTargets(op) {
-				return clientproto.ZooAddFoodstuffRequest{}, fmt.Errorf("addFoodstuff carries unexpected activity targets")
-			}
-			foodstuffIDs := make(clientproto.RPCIDList, op.Count)
-			for i := range foodstuffIDs {
-				foodstuffIDs[i] = op.ItemID
-			}
-			return clientproto.ZooAddFoodstuffRequest{PetId: op.TargetID, FoodstuffIds: foodstuffIDs}, nil
-		},
-		func(ctx context.Context, rpc *clientrpc.Client, req clientproto.ZooAddFoodstuffRequest) (babigame.RPCResponse[clientproto.StateDelta], error) {
-			return rpc.Zoo().AddFoodstuff(ctx, req)
-		},
-	),
+	clientproto.RPCZooAddFoodstuff.String(): {
+		args: func(op *automation.PlannedOp) (any, error) { return zooAddFoodstuffRequest(op) },
+		run:  runZooAddFoodstuff,
+	},
 	clientproto.RPCZooStrokePet.String(): stateDeltaOperation(
 		func(op *automation.PlannedOp) (clientproto.ZooStrokePetRequest, error) {
 			if op.TargetID <= 0 {
@@ -584,14 +561,12 @@ var plannedOperationSpecs = map[string]operationSpec{
 			return rpc.FmlRace().DelTask(ctx, req)
 		},
 	),
-	clientproto.RPCFmlRaceUpgradeTask.String(): stateDeltaOperation(
-		func(op *automation.PlannedOp) (clientproto.FmlRaceUpgradeTaskRequest, error) {
+	clientproto.RPCFmlRaceUpgradeTask.String(): {
+		args: func(op *automation.PlannedOp) (any, error) {
 			return clientproto.FmlRaceUpgradeTaskRequest{}, nil
 		},
-		func(ctx context.Context, rpc *clientrpc.Client, req clientproto.FmlRaceUpgradeTaskRequest) (babigame.RPCResponse[clientproto.StateDelta], error) {
-			return rpc.FmlRace().UpgradeTask(ctx, req)
-		},
-	),
+		run: runFmlRaceUpgrade,
+	},
 	clientproto.RPCFmlRaceEnter.String(): {
 		args: func(op *automation.PlannedOp) (any, error) {
 			return clientproto.FmlRaceEnterRequest{}, nil

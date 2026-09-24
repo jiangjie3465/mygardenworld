@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/SilkageNet/mygardenworld/internal/babigame"
@@ -26,19 +27,32 @@ type Manager struct {
 	bus *Bus
 	log *slog.Logger
 
-	DebugDir string // when non-empty, runners write debug JSONL here
+	DebugDir            string // when non-empty, runners write debug JSONL here
+	gameGate            gameGate
+	maintenanceMu       sync.Mutex
+	maintenanceInitErr  error
+	maintenanceRestores sync.WaitGroup
+	maintenanceDraining atomic.Bool
+	// Pacing is configured once by the daemon before any account starts.
+	Pacing RequestPacing
+	pacers map[int64]*requestPacer
 
 	mu        sync.RWMutex
 	runners   map[int64]*Runner
-	opLocks   map[int64]*sync.Mutex
+	opLocks   map[int64]*accountLifecycleLock
 	lastStats map[int64]RuntimeStatsSnapshot
 	// lastDiag keeps the final diagnostics after a runner exits so status can
 	// still surface session-invalidation (e.g. phone login kick) as 异常
 	// instead of a bare offline badge.
-	lastDiag map[int64]Diagnostics
+	lastDiag             map[int64]Diagnostics
+	manualResumeRequired bool
+	deletionWake         chan struct{}
+	deletionAttempts     map[int64]store.DeletionAttempt
 }
 
 const restoreAccountTimeout = 90 * time.Second
+
+var errRestoreIneligible = errors.New("account no longer eligible for automatic restoration")
 
 // StartSource records which product path created a game session. It is carried
 // into the first successful session event so operators can distinguish an
@@ -68,15 +82,26 @@ type RestoreReport struct {
 // NewManager wires up the registry. The daemon serves all platforms; the
 // platform → Config mapping is resolved per-account in StartWithSource.
 func NewManager(db *store.DB, bus *Bus, log *slog.Logger) *Manager {
-	return &Manager{
-		db:        db,
-		bus:       bus,
-		log:       log,
-		runners:   make(map[int64]*Runner),
-		opLocks:   make(map[int64]*sync.Mutex),
-		lastStats: make(map[int64]RuntimeStatsSnapshot),
-		lastDiag:  make(map[int64]Diagnostics),
+	m := &Manager{
+		db:           db,
+		bus:          bus,
+		log:          log,
+		runners:      make(map[int64]*Runner),
+		opLocks:      make(map[int64]*accountLifecycleLock),
+		lastStats:    make(map[int64]RuntimeStatsSnapshot),
+		lastDiag:     make(map[int64]Diagnostics),
+		pacers:       make(map[int64]*requestPacer),
+		deletionWake: make(chan struct{}, 1),
 	}
+	if db != nil {
+		s, err := db.Maintenance(context.Background())
+		m.maintenanceInitErr = err
+		if err != nil || s.Enabled {
+			m.gameGate.block()
+			m.manualResumeRequired = true
+		}
+	}
+	return m
 }
 
 // Get returns the runner for an account, or nil when no runner is currently
@@ -139,6 +164,9 @@ func (m *Manager) ClearLastDiagnostics(accountID int64) {
 // its existing runner and does not participate in daemon-start restoration.
 func (m *Manager) RestoreEnabledRunners(ctx context.Context) RestoreReport {
 	report := RestoreReport{}
+	if !m.BackgroundStartsAllowed() {
+		return report
+	}
 	accounts, err := m.accountsWithAutomationEnabled(ctx)
 	if err != nil {
 		report.Failed = 1
@@ -147,8 +175,12 @@ func (m *Manager) RestoreEnabledRunners(ctx context.Context) RestoreReport {
 	}
 	report.Eligible = len(accounts)
 	for i, acc := range accounts {
+		if !m.BackgroundStartsAllowed() {
+			report.Skipped += len(accounts) - i
+			break
+		}
 		if err := ctx.Err(); err != nil {
-			report.Skipped = len(accounts) - i
+			report.Skipped += len(accounts) - i
 			m.log.Info("auto-start restore cancelled", "skipped", report.Skipped, "err", err)
 			break
 		}
@@ -156,6 +188,10 @@ func (m *Manager) RestoreEnabledRunners(ctx context.Context) RestoreReport {
 		_, err := m.StartWithSource(startCtx, acc.ID, StartSourceDaemonRestore)
 		cancel()
 		if err != nil {
+			if errors.Is(err, errRestoreIneligible) || errors.Is(err, ErrMaintenance) || errors.Is(err, ErrManualResumeRequired) {
+				report.Skipped++
+				continue
+			}
 			report.Failed++
 			m.log.Warn("auto-start account failed", "account_id", acc.ID, "account", acc.Name, "err", err)
 			continue
@@ -204,28 +240,72 @@ func (m *Manager) accountsWithAutomationEnabled(ctx context.Context) ([]*store.A
 // build. We never fall back to a "default" channel because that would silently
 // hit the wrong host fronts.
 func (m *Manager) StartWithSource(ctx context.Context, accountID int64, source StartSource) (*Runner, error) {
+	ctx, release, err := m.BeginAccountGameWork(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	lock := m.accountLock(accountID)
-	lock.Lock()
+	if err := lock.LockContext(ctx); err != nil {
+		return nil, err
+	}
 	defer lock.Unlock()
-	return m.start(ctx, accountID, source)
+	return m.start(ctx, accountID, source, false)
 }
 
-func (m *Manager) accountLock(accountID int64) *sync.Mutex {
+// StartAutomation completes an explicit connection/enable command under the
+// account lifecycle lock. A new runner is not registered until activation is
+// persisted; cancellation or activation failure closes its connection instead
+// of leaving an apparently online, automation-disabled runner behind.
+func (m *Manager) StartAutomation(ctx context.Context, accountID int64, source StartSource, reconnect bool) (*Runner, error) {
+	ctx, release, err := m.BeginAccountGameWork(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	lock := m.accountLock(accountID)
+	if err := lock.LockContext(ctx); err != nil {
+		return nil, err
+	}
+	defer lock.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if reconnect {
+		_ = m.stop(accountID)
+	}
+	return m.start(ctx, accountID, source, true)
+}
+
+func (m *Manager) accountLock(accountID int64) *accountLifecycleLock {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	lock := m.opLocks[accountID]
 	if lock == nil {
-		lock = &sync.Mutex{}
+		lock = &accountLifecycleLock{token: make(chan struct{}, 1)}
 		m.opLocks[accountID] = lock
 	}
 	return lock
 }
 
-func (m *Manager) start(ctx context.Context, accountID int64, source StartSource) (*Runner, error) {
+func (m *Manager) start(ctx context.Context, accountID int64, source StartSource, activate bool) (*Runner, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	m.mu.Lock()
 	if r, ok := m.runners[accountID]; ok {
 		m.mu.Unlock()
+		if activate {
+			// Failure must not tear down a runner owned by an earlier command.
+			if err := r.enableAutomation(ctx); err != nil {
+				return nil, err
+			}
+		}
 		return r, nil
+	}
+	if m.manualResumeRequired && (source == StartSourceRedeemAutoConnect || source == StartSourceDaemonRestore) {
+		m.mu.Unlock()
+		return nil, ErrManualResumeRequired
 	}
 	m.mu.Unlock()
 
@@ -238,6 +318,14 @@ func (m *Manager) start(ctx context.Context, accountID int64, source StartSource
 		return nil, fmt.Errorf("account %q: %w", acc.Name, err)
 	}
 	r := New(cfg, m.db, acc, m.bus, m.log)
+	r.gameGate = &m.gameGate
+	r.accountGameGate = &m.accountLock(accountID).game
+	m.mu.Lock()
+	if m.pacers[accountID] == nil {
+		m.pacers[accountID] = newRequestPacer(m.Pacing)
+	}
+	r.pacer = m.pacers[accountID]
+	m.mu.Unlock()
 	r.startSource = source
 	rawPolicy, err := m.db.LoadPolicyJSON(ctx, acc.ID)
 	if err != nil {
@@ -246,6 +334,18 @@ func (m *Manager) start(ctx context.Context, accountID int64, source StartSource
 	policy, err := policycfg.FromJSON(rawPolicy)
 	if err != nil {
 		return nil, fmt.Errorf("load policy for %q: %w", acc.Name, err)
+	}
+	// Restoration candidates may have been listed well before their turn.
+	// Re-read intent and owner eligibility immediately before starting I/O.
+	if source == StartSourceDaemonRestore && !policy.GetAutomationEnabled() {
+		return nil, errRestoreIneligible
+	}
+	owner, err := m.db.GetUserByID(ctx, acc.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if owner.Status != "active" {
+		return nil, store.ErrUserInactive
 	}
 	r.SetPolicy(policy)
 	if m.DebugDir != "" {
@@ -258,7 +358,7 @@ func (m *Manager) start(ctx context.Context, accountID int64, source StartSource
 		}
 	}
 	m.log.Info("starting account session", "account_id", acc.ID, "account", acc.Name, "source", source)
-	if err := r.Start(ctx); err != nil {
+	if err := r.start(ctx, activate); err != nil {
 		m.log.Warn("start account session failed", "account_id", acc.ID, "account", acc.Name, "source", source, "err", err)
 		return nil, err
 	}
@@ -313,19 +413,30 @@ func (m *Manager) stop(accountID int64) error {
 // ReloadWithSource replaces the runner and attributes the new session to
 // source.
 func (m *Manager) ReloadWithSource(ctx context.Context, accountID int64, source StartSource) (*Runner, error) {
+	ctx, release, err := m.BeginAccountGameWork(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	lock := m.accountLock(accountID)
-	lock.Lock()
+	if err := lock.LockContext(ctx); err != nil {
+		return nil, err
+	}
 	defer lock.Unlock()
 	_ = m.stop(accountID)
-	return m.start(ctx, accountID, source)
+	return m.start(ctx, accountID, source, false)
 }
 
 // Shutdown stops every runner. Used at daemon exit.
 func (m *Manager) Shutdown() {
+	m.gameGate.block()
+	m.stopMaintenanceRunners()
+	_ = m.gameGate.wait(context.Background())
+	m.maintenanceRestores.Wait()
 	m.mu.Lock()
 	runners := m.runners
 	m.runners = make(map[int64]*Runner)
-	m.opLocks = make(map[int64]*sync.Mutex)
+	m.opLocks = make(map[int64]*accountLifecycleLock)
 	m.mu.Unlock()
 	for _, r := range runners {
 		r.Stop()

@@ -19,12 +19,13 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AccountService_CreateAccount_FullMethodName     = "/mygardenworld.v1.AccountService/CreateAccount"
-	AccountService_DeleteAccount_FullMethodName     = "/mygardenworld.v1.AccountService/DeleteAccount"
-	AccountService_ListAccounts_FullMethodName      = "/mygardenworld.v1.AccountService/ListAccounts"
-	AccountService_ConnectAccount_FullMethodName    = "/mygardenworld.v1.AccountService/ConnectAccount"
-	AccountService_StartAlipayLogin_FullMethodName  = "/mygardenworld.v1.AccountService/StartAlipayLogin"
-	AccountService_DisconnectAccount_FullMethodName = "/mygardenworld.v1.AccountService/DisconnectAccount"
+	AccountService_CreateAccount_FullMethodName         = "/mygardenworld.v1.AccountService/CreateAccount"
+	AccountService_DeleteAccount_FullMethodName         = "/mygardenworld.v1.AccountService/DeleteAccount"
+	AccountService_ListAccounts_FullMethodName          = "/mygardenworld.v1.AccountService/ListAccounts"
+	AccountService_ConnectAccount_FullMethodName        = "/mygardenworld.v1.AccountService/ConnectAccount"
+	AccountService_ReauthenticateAccount_FullMethodName = "/mygardenworld.v1.AccountService/ReauthenticateAccount"
+	AccountService_StartAlipayLogin_FullMethodName      = "/mygardenworld.v1.AccountService/StartAlipayLogin"
+	AccountService_DisconnectAccount_FullMethodName     = "/mygardenworld.v1.AccountService/DisconnectAccount"
 )
 
 // AccountServiceClient is the client API for AccountService service.
@@ -34,12 +35,16 @@ type AccountServiceClient interface {
 	// Add an iOS game account. Verifies credentials, derives the display name,
 	// persists the account, and starts its runner and automation.
 	CreateAccount(ctx context.Context, in *CreateAccountRequest, opts ...grpc.CallOption) (*CreateAccountResponse, error)
-	// Soft-delete: stops the runner and removes the row + sessions/policies.
+	// Persist deletion intent. Background work drains the runner and removes
+	// history in bounded batches. Completion is observed via workspace statuses.
 	DeleteAccount(ctx context.Context, in *DeleteAccountRequest, opts ...grpc.CallOption) (*DeleteAccountResponse, error)
 	ListAccounts(ctx context.Context, in *ListAccountsRequest, opts ...grpc.CallOption) (*ListAccountsResponse, error)
 	// Force a fresh username+password login for the account. Refreshes
 	// session token, routeToken, gsHost. Daemon will rebuild the WS.
 	ConnectAccount(ctx context.Context, in *ConnectAccountRequest, opts ...grpc.CallOption) (*ConnectAccountResponse, error)
+	// Replace an existing iOS account's password after verifying its identity.
+	// Preserves its ID, policy, history and automation start/pause preference.
+	ReauthenticateAccount(ctx context.Context, in *ReauthenticateAccountRequest, opts ...grpc.CallOption) (*ReauthenticateAccountResponse, error)
 	// Starts a short-lived Alipay PC game-center QR authorization. The returned
 	// qr_content must be rendered locally as a QR code and is never persisted.
 	StartAlipayLogin(ctx context.Context, in *StartAlipayLoginRequest, opts ...grpc.CallOption) (*StartAlipayLoginResponse, error)
@@ -96,6 +101,16 @@ func (c *accountServiceClient) ConnectAccount(ctx context.Context, in *ConnectAc
 	return out, nil
 }
 
+func (c *accountServiceClient) ReauthenticateAccount(ctx context.Context, in *ReauthenticateAccountRequest, opts ...grpc.CallOption) (*ReauthenticateAccountResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReauthenticateAccountResponse)
+	err := c.cc.Invoke(ctx, AccountService_ReauthenticateAccount_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *accountServiceClient) StartAlipayLogin(ctx context.Context, in *StartAlipayLoginRequest, opts ...grpc.CallOption) (*StartAlipayLoginResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(StartAlipayLoginResponse)
@@ -123,12 +138,16 @@ type AccountServiceServer interface {
 	// Add an iOS game account. Verifies credentials, derives the display name,
 	// persists the account, and starts its runner and automation.
 	CreateAccount(context.Context, *CreateAccountRequest) (*CreateAccountResponse, error)
-	// Soft-delete: stops the runner and removes the row + sessions/policies.
+	// Persist deletion intent. Background work drains the runner and removes
+	// history in bounded batches. Completion is observed via workspace statuses.
 	DeleteAccount(context.Context, *DeleteAccountRequest) (*DeleteAccountResponse, error)
 	ListAccounts(context.Context, *ListAccountsRequest) (*ListAccountsResponse, error)
 	// Force a fresh username+password login for the account. Refreshes
 	// session token, routeToken, gsHost. Daemon will rebuild the WS.
 	ConnectAccount(context.Context, *ConnectAccountRequest) (*ConnectAccountResponse, error)
+	// Replace an existing iOS account's password after verifying its identity.
+	// Preserves its ID, policy, history and automation start/pause preference.
+	ReauthenticateAccount(context.Context, *ReauthenticateAccountRequest) (*ReauthenticateAccountResponse, error)
 	// Starts a short-lived Alipay PC game-center QR authorization. The returned
 	// qr_content must be rendered locally as a QR code and is never persisted.
 	StartAlipayLogin(context.Context, *StartAlipayLoginRequest) (*StartAlipayLoginResponse, error)
@@ -155,6 +174,9 @@ func (UnimplementedAccountServiceServer) ListAccounts(context.Context, *ListAcco
 }
 func (UnimplementedAccountServiceServer) ConnectAccount(context.Context, *ConnectAccountRequest) (*ConnectAccountResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ConnectAccount not implemented")
+}
+func (UnimplementedAccountServiceServer) ReauthenticateAccount(context.Context, *ReauthenticateAccountRequest) (*ReauthenticateAccountResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReauthenticateAccount not implemented")
 }
 func (UnimplementedAccountServiceServer) StartAlipayLogin(context.Context, *StartAlipayLoginRequest) (*StartAlipayLoginResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method StartAlipayLogin not implemented")
@@ -254,6 +276,24 @@ func _AccountService_ConnectAccount_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AccountService_ReauthenticateAccount_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReauthenticateAccountRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountServiceServer).ReauthenticateAccount(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountService_ReauthenticateAccount_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountServiceServer).ReauthenticateAccount(ctx, req.(*ReauthenticateAccountRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AccountService_StartAlipayLogin_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(StartAlipayLoginRequest)
 	if err := dec(in); err != nil {
@@ -312,6 +352,10 @@ var AccountService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ConnectAccount",
 			Handler:    _AccountService_ConnectAccount_Handler,
+		},
+		{
+			MethodName: "ReauthenticateAccount",
+			Handler:    _AccountService_ReauthenticateAccount_Handler,
 		},
 		{
 			MethodName: "StartAlipayLogin",

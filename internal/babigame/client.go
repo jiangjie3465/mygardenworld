@@ -38,6 +38,18 @@ type Client struct {
 
 	// DebugWriter, when non-nil, receives all WS frames (send + recv) as JSONL.
 	DebugWriter *DebugFrameWriter
+
+	// Configure before Connect. BeforeRPC can reject any game RPC (including
+	// heartbeat/login); OnRPCResponse runs before the matching caller resumes.
+	// The observer must not call RPC or block for network IO.
+	BeforeRPC func(context.Context, string) error
+	// BeginRPC may attach a cancellable I/O lifetime. Its release callback runs
+	// only after the request has returned, including rejection and timeout.
+	BeginRPC      func(context.Context) (context.Context, func(), error)
+	OnRPCResponse func(string, WSResponseD)
+	// OnClosed runs once after the physical socket is closed, unlike Done
+	// which wakes RPC waiters as soon as shutdown begins. Set before Connect.
+	OnClosed func()
 }
 
 // NamespaceHandler receives the namespace value (`v.<ns_key>`) plus the full
@@ -64,6 +76,7 @@ type rpcResult struct {
 // an apply hook; calls with a hook (or explicit manual apply) suppress that
 // fallback so additive namespace deltas are never merged twice.
 type pendingRPC struct {
+	name               string
 	result             chan rpcResult
 	dispatchNamespaces bool
 }
@@ -105,6 +118,9 @@ func (c *Client) OnSessionExpired(h SessionExpiredHandler) {
 
 // Connect dials the wss URL and starts the reader / heartbeat goroutines.
 func (c *Client) Connect(ctx context.Context) error {
+	if c.closed.Load() {
+		return errors.New("client closed")
+	}
 	conn, _, err := websocket.Dial(ctx, c.Session.WSURL(), &websocket.DialOptions{
 		HTTPHeader: nil,
 	})
@@ -113,6 +129,11 @@ func (c *Client) Connect(ctx context.Context) error {
 	}
 	conn.SetReadLimit(8 * 1024 * 1024)
 	c.mu.Lock()
+	if c.closed.Load() {
+		c.mu.Unlock()
+		_ = conn.CloseNow()
+		return errors.New("client closed during dial")
+	}
 	c.conn = conn
 	c.mu.Unlock()
 	go c.reader()
@@ -139,6 +160,9 @@ func (c *Client) Close() error {
 	if conn != nil {
 		_ = conn.Close(websocket.StatusNormalClosure, "client close")
 	}
+	if c.OnClosed != nil {
+		c.OnClosed()
+	}
 	return nil
 }
 
@@ -153,6 +177,19 @@ func (c *Client) Closed() bool { return c.closed.Load() }
 // Higher layers should use RPCClient so route, timeout, and DTO handling stay
 // centralized.
 func (c *Client) rpc(ctx context.Context, name string, args any, routeArg string, timeout time.Duration, dispatchNamespaces bool) (json.RawMessage, WSResponseD, error) {
+	if c.BeginRPC != nil {
+		workCtx, release, err := c.BeginRPC(ctx)
+		if err != nil {
+			return nil, WSResponseD{}, err
+		}
+		defer release()
+		ctx = workCtx
+	}
+	if c.BeforeRPC != nil {
+		if err := c.BeforeRPC(ctx, name); err != nil {
+			return nil, WSResponseD{}, err
+		}
+	}
 	if c.closed.Load() {
 		return nil, WSResponseD{}, errors.New("client closed")
 	}
@@ -165,7 +202,7 @@ func (c *Client) rpc(ctx context.Context, name string, args any, routeArg string
 	c.mu.Lock()
 	conn := c.conn
 	if conn != nil {
-		c.pending[k] = pendingRPC{result: ch, dispatchNamespaces: dispatchNamespaces}
+		c.pending[k] = pendingRPC{name: name, result: ch, dispatchNamespaces: dispatchNamespaces}
 	}
 	c.mu.Unlock()
 	if conn == nil {
@@ -264,6 +301,9 @@ func (c *Client) dispatchText(data []byte) {
 		delete(c.pending, d.K)
 	}
 	c.mu.Unlock()
+	if c.OnRPCResponse != nil {
+		c.OnRPCResponse(call.name, d)
+	}
 	if ok {
 		call.result <- rpcResult{v: d.V, d: d}
 	}

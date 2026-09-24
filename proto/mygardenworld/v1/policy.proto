@@ -63,6 +63,10 @@ message BasicPolicy {
   // ONLINE_ONLY never creates a session; pending codes wait until the account
   // is already online for another reason.
   RedeemConnectMode redeem_connect_mode = 17;
+  // Opt-in: after the first 5000 protection cooldown, prefer one fresh
+  // authentication instead of cached recovery (rate-limited across incidents).
+  // May displace a mobile client; independent of displaced-session relogin.
+  bool server_error_fresh_login_enabled = 18;
 }
 
 message ReputationPolicy {
@@ -276,6 +280,10 @@ message CustomerOrderPolicy {
   // Minimum flower-art piece count to accept. Orders below this are rejected.
   // 0 means no filter; 2 accepts 2+ arts; 3 accepts only 3+ arts.
   int32 min_flower_art_count = 4;
+  // Exact whole-order floral-coin reward (item 1002), excluding video doubling.
+  // Absent disables the filter; zero explicitly matches zero-reward orders.
+  // Mismatches stay pending (never auto-rejected), including during a race task.
+  optional int64 exact_floral_coin = 5;
 }
 
 message ResidentOrderPolicy {
@@ -358,14 +366,17 @@ message UnionRacePolicy {
   bool only_upgrade_task = 5;
   bool exclude_others_upgrade_task = 6;
   map<int32, int32> task_type_priority = 7;
+  // Independently upgrades the current unfinished task, subject to a known
+  // cost and max_spend_diamond. Does not require auto_enable_modules.
   bool upgrade_task = 8;
   bool delete_low_score_task = 9;
   int32 delete_task_max_score = 10;
+  // Per-task upgrade cost ceiling. Zero prohibits spending; never unlimited.
   int64 max_spend_diamond = 11;
   // When true with auto_enable_modules, stop planning takeTask once this
-  // batch's free task quota is used up (finished_task_num >= total_task_num).
+  // batch's actual task quota is used up (base slots + purchased extras).
   // Sync / finish / giveUp of an already-held task still run. Default on in
-  // DefaultPolicy; purchased extra slots (buyTaskNum) are not consumed.
+  // DefaultPolicy. Using purchased slots never authorizes buying more slots.
   bool auto_stop_on_quota_done = 12;
   // When true, the race monitor shows personal cumulative score and guild-member
   // rank for the current batch. Default off.
@@ -378,6 +389,10 @@ message UnionRacePolicy {
   // taken outside gardend, so it is an explicit opt-in independent of
   // auto_enable_modules. Default off.
   bool auto_give_up_task = 15;
+  // Account-wide minimum spacing between delete attempts, including manual
+  // deletion and its preflight refresh. Zero uses 120 seconds; clamped to
+  // 30..3600 seconds. This is a conservative local guard, not a server limit.
+  int32 delete_interval_seconds = 16;
 }
 
 message UnionLandPolicy {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -114,6 +115,9 @@ func runPearlHire(ctx context.Context, rt operationRuntime, op *automation.Plann
 	if rt.runner == nil || rt.runner.state == nil || rt.rpc == nil {
 		return nil, fmt.Errorf("pearl hire runner state or RPC unavailable")
 	}
+	if err := preparePearlHireCandidate(ctx, rt, op); err != nil {
+		return nil, err // Only read requests ran; never lock the hire session.
+	}
 	exec := pearlHireExecution{
 		preflight: func(at time.Time) (state.PearlHireAttemptSnapshot, error) {
 			policy := rt.runner.Policy().GetBasic().GetPearl()
@@ -129,19 +133,52 @@ func runPearlHire(ctx context.Context, rt operationRuntime, op *automation.Plann
 		hire: func(ctx context.Context, request clientproto.PearlPlaceHireRequest) (json.RawMessage, error) {
 			return checkedStateDelta(rt.rpc.PearlPlace().Hire(ctx, request, babigame.WithPayloadApply(false)))
 		},
-		apply:       rt.runner.state.ApplyV,
-		outcome:     rt.runner.state.PearlHireAttemptApplied,
-		ticketSpent: rt.runner.state.PearlHireTicketDecreased,
-		markFailed:  rt.runner.state.MarkPearlHireFailed,
-		noteUsed:    rt.runner.notePearlHireTicketUsed,
-		lockSession: rt.runner.state.LockPearlHireSession,
-		now:         time.Now,
+		apply:         rt.runner.state.ApplyV,
+		outcome:       rt.runner.state.PearlHireAttemptApplied,
+		ticketSpent:   rt.runner.state.PearlHireTicketDecreased,
+		markFailed:    rt.runner.state.MarkPearlHireFailed,
+		skipCandidate: rt.runner.state.SkipPearlHireCandidate,
+		noteUsed:      rt.runner.notePearlHireTicketUsed,
+		lockSession: func(reason string) {
+			rt.runner.state.LockPearlHireSession(reason)
+			rt.runner.emit(Event{Kind: "pearl_hire_locked", Category: "basic", Domain: "basic.pearl", Action: "blocked", Level: "error", Label: "珍珠雇佣保护", Message: reason})
+		},
+		now: time.Now,
 	}
 	return executePearlHire(ctx, req, exec)
 }
 
+// Refresh only the selected UID under the existing operation lock. Keeping
+// these two bounded reads with the mutation avoids restarting discovery each
+// time a separate scheduled step exhausts the 30-second spend-time window.
+func preparePearlHireCandidate(ctx context.Context, rt operationRuntime, op *automation.PlannedOp) error {
+	if err := automation.ValidatePearlHireCandidate(rt.runner.state, rt.runner.Policy().GetBasic().GetPearl(), op, time.Now()); err != nil {
+		return err
+	}
+	if automation.PearlHireCandidateFresh(rt.runner.state, op.TargetUID, time.Now()) {
+		return nil
+	}
+	uids := clientproto.RPCUIDList{op.TargetUID}
+	if _, err := checkedStateDelta(rt.rpc.Oppt().GetDetailOppts(ctx, clientproto.OpptGetDetailOpptsRequest{UIDs: uids, ExtKeys: clientproto.RPCIDList{1}})); err != nil {
+		return fmt.Errorf("雇佣前核验候选等级: %w", err)
+	}
+	if _, err := checkedStateDelta(rt.rpc.Pearl().GetHireStateByUids(ctx, clientproto.PearlGetHireStateByUidsRequest{UIDs: uids})); err != nil {
+		return fmt.Errorf("雇佣前核验候选保护状态: %w", err)
+	}
+	return nil
+}
+
+type pearlHireSendGuardKey struct{}
+
+// A local veto is proof that hire was not sent, unlike an ambiguous transport
+// error. It must not permanently lock the session or mark the UID contested.
+type pearlHireNotSentError struct{ err error }
+
+func (e *pearlHireNotSentError) Error() string { return "珍珠雇佣未发送: " + e.err.Error() }
+func (e *pearlHireNotSentError) Unwrap() error { return e.err }
+
 func executePearlHire(ctx context.Context, req clientproto.PearlPlaceHireRequest, exec pearlHireExecution) (json.RawMessage, error) {
-	if exec.preflight == nil || exec.hire == nil || exec.outcome == nil || exec.markFailed == nil || exec.lockSession == nil {
+	if exec.preflight == nil || exec.hire == nil || exec.outcome == nil || exec.markFailed == nil || exec.skipCandidate == nil || exec.lockSession == nil {
 		return nil, fmt.Errorf("pearl hire execution is incomplete")
 	}
 	clock := exec.now
@@ -153,8 +190,17 @@ func executePearlHire(ctx context.Context, req clientproto.PearlPlaceHireRequest
 	if err != nil {
 		return nil, err
 	}
+	ctx = context.WithValue(ctx, pearlHireSendGuardKey{}, func() error {
+		var err error
+		snapshot, err = exec.preflight(clock())
+		return err
+	})
 	raw, err := exec.hire(ctx, req)
 	if err != nil {
+		var notSent *pearlHireNotSentError
+		if errors.As(err, &notSent) {
+			return nil, err
+		}
 		exec.lockSession("珍珠雇佣请求结果不明确，当前会话已锁定以避免重复扣券")
 		exec.markFailed(snapshot.TargetUID, clock())
 		return nil, fmt.Errorf("pearlPlace.hire: %w", err)
@@ -163,8 +209,17 @@ func executePearlHire(ctx context.Context, req clientproto.PearlPlaceHireRequest
 	if babigame.HasPayload(raw) && exec.apply != nil {
 		exec.apply(raw)
 	}
-	if exec.ticketSpent != nil && exec.ticketSpent(snapshot) && exec.noteUsed != nil {
+	ticketSpent := exec.ticketSpent != nil && exec.ticketSpent(snapshot)
+	if ticketSpent && exec.noteUsed != nil {
 		exec.noteUsed(ctx, clock())
+	}
+	success, failCount, known := exec.outcome(snapshot)
+	// Match the official client's result precedence: an authoritative
+	// hireFailCnt belongs to the contested-candidate path even if $ext also
+	// happens to be present in the same namespace delta.
+	if known && failCount > 0 {
+		exec.markFailed(snapshot.TargetUID, clock())
+		return nil, fmt.Errorf("pearlPlace.hire candidate was contested (hireFailCnt=%d)", failCount)
 	}
 	if fallbackErr != nil {
 		reason := "珍珠雇佣响应中的 3.0 金币回退字段格式异常，当前会话已锁定"
@@ -173,15 +228,8 @@ func executePearlHire(ctx context.Context, req clientproto.PearlPlaceHireRequest
 		return nil, fmt.Errorf("%s: %w", reason, fallbackErr)
 	}
 	if fallback {
-		reason := "珍珠雇佣触发金币回退，当前会话已锁定；不会自动消耗金币"
-		exec.lockSession(reason)
-		exec.markFailed(snapshot.TargetUID, clock())
-		return nil, fmt.Errorf("%s", reason)
-	}
-	success, failCount, known := exec.outcome(snapshot)
-	if known && failCount > 0 {
-		exec.markFailed(snapshot.TargetUID, clock())
-		return nil, fmt.Errorf("pearlPlace.hire candidate was contested (hireFailCnt=%d)", failCount)
+		exec.skipCandidate(snapshot.TargetUID)
+		return raw, &pearlHireCandidateFallbackError{TicketSpent: ticketSpent}
 	}
 	if !success {
 		exec.lockSession("珍珠雇佣响应未满足票券与槽位后置条件，当前会话已锁定")
@@ -193,8 +241,8 @@ func executePearlHire(ctx context.Context, req clientproto.PearlPlaceHireRequest
 
 // pearlHireGoldFallback inspects only namespace 3 field 0, the wire field
 // exposed to the official client as $ext.iv for this RPC. Missing or exact
-// integer zero is safe; any nonzero value is fallback and any present malformed value is an
-// error that must lock the session.
+// integer zero is safe; any nonzero value is a candidate-level fallback and
+// any present malformed value is an error that must lock the session.
 func pearlHireGoldFallback(raw json.RawMessage) (bool, error) {
 	if !babigame.HasPayload(raw) {
 		return false, nil

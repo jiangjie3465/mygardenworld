@@ -9,6 +9,7 @@ import "google/protobuf/timestamp.proto";
 import "mygardenworld/v1/account.proto";
 import "mygardenworld/v1/channel.proto";
 import "mygardenworld/v1/policy.proto";
+import "mygardenworld/v1/notification.proto";
 import "mygardenworld/v1/workspace_activity.proto";
 import "mygardenworld/v1/workspace_basic.proto";
 import "mygardenworld/v1/workspace_common.proto";
@@ -67,6 +68,7 @@ message WorkspaceClientFrame {
     LoadWorkspaceLogs load_logs = 5;
     WatchAlipayLogin watch_alipay_login = 6;
     LoadAccountRedeemAttempts load_redeem_attempts = 7;
+    LoadUserNotifications load_notifications = 8;
   }
 }
 
@@ -78,6 +80,7 @@ message OpenWorkspace {
 }
 
 message SelectWorkspaceAccount {
+  // Zero clears the selected account and its state/log subscriptions.
   int64 account_id = 1;
   int64 after_log_id = 2;
 }
@@ -116,6 +119,8 @@ message WorkspaceServerFrame {
     AlipayLoginProgress alipay_login = 8;
     WorkspaceError error = 9;
     AccountRedeemAttemptPage redeem_attempts = 10;
+    UserNotificationsView notifications = 11;
+    MaintenanceView maintenance = 12;
   }
 }
 
@@ -126,6 +131,13 @@ message WorkspaceReady {
   repeated FeatureCapability feature_capabilities = 4;
   int32 heartbeat_seconds = 5;
   string server_version = 6;
+  MaintenanceView maintenance = 7;
+}
+
+// Shared operational state only. No account counts, identifiers or owner data.
+message MaintenanceView {
+  bool enabled = 1;
+  bool draining = 2;
 }
 
 message AccountStatusBatch {

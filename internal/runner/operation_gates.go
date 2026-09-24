@@ -16,7 +16,10 @@ func (r *Runner) nextRunnableOperation(policy *pb.Policy, now time.Time) *automa
 		r.resetSideLaneFairness()
 		return nil
 	}
-	return r.selectRunnableOperation(automation.PlanOperations(r.state, policy, now), now)
+	candidates := automation.PlanOperations(r.state, policy, now)
+	selected := r.selectRunnableOperation(candidates, now)
+	r.emitSchedulerWaitDiagnostic(candidates, selected, now)
+	return selected
 }
 
 func runnablePlannedOp(op automation.PlannedOp) bool {
@@ -31,10 +34,33 @@ func (r *Runner) checkOperationResources(op *automation.PlannedOp, now time.Time
 	if op == nil {
 		return nil
 	}
+	if op.Kind == clientproto.RPCOrderCustomerFinishOrder.String() || op.Kind == clientproto.RPCOrderCustomerRejectOrder.String() ||
+		(op.Kind == clientproto.RPCFlowerArtMakeFlowerArt.String() && op.GoalID == automation.GoalCustomerOrder) {
+		if reason := automation.CustomerOrderRewardSkipReason(r.state.CustomerOrderDetails()[op.TargetID], r.Policy().GetOrder().GetCustomer()); reason != "" {
+			return fmt.Errorf("顾客订单已跳过：%s", reason)
+		}
+	}
 	// Defense in depth: even if a future planner regression emits one of these
 	// operations as executable, do not send a request that depends on fabricated
 	// advertising SDK callbacks or tokens.
 	switch op.Kind {
+	case clientproto.RPCZooAddFoodstuff.String():
+		if err := automation.ValidateZooFoodStock(r.state, r.Policy().GetBasic().GetZoo(), op); err != nil {
+			return err
+		}
+	case clientproto.RPCFmlRaceUpgradeTask.String():
+		if !r.Policy().GetAutomationEnabled() {
+			return fmt.Errorf("自动化已暂停，不消费元宝")
+		}
+		if err := automation.ValidateRaceUpgrade(r.state, r.Policy().GetUnion().GetRace(), op, now); err != nil {
+			return err
+		}
+		r.mu.RLock()
+		attempted := r.raceUpgradeAttempts[[2]int64{op.RaceBatchID, op.TaskMsID}]
+		r.mu.RUnlock()
+		if attempted {
+			return fmt.Errorf("此任务已提交过升级，不重复消费元宝")
+		}
 	case clientproto.RPCShopBuy.String():
 		if err := automation.ValidateZooFoodPurchase(r.state, r.Policy().GetBasic().GetZoo(), op, now); err != nil {
 			return err
@@ -59,7 +85,7 @@ func (r *Runner) checkOperationResources(op *automation.PlannedOp, now time.Time
 			return err
 		}
 	}
-	if op.DiamondCost > 0 {
+	if op.DiamondCost > 0 && op.Kind != clientproto.RPCFmlRaceUpgradeTask.String() {
 		return fmt.Errorf("钻石消耗操作默认不自动执行: %d", op.DiamondCost)
 	}
 	if op.GoldCost > 0 && r.state.Gold() < op.GoldCost {
@@ -116,7 +142,9 @@ func (r *Runner) checkCostGate(op *automation.PlannedOp, gate automation.CostGat
 		if available < required {
 			return fmt.Errorf("%s不足: 需要 %d，当前 %d", gateLabel(gate, "元宝"), required, available)
 		}
-		return fmt.Errorf("元宝成本操作默认不自动执行: %d", required)
+		if op.Kind != clientproto.RPCFmlRaceUpgradeTask.String() {
+			return fmt.Errorf("元宝成本操作默认不自动执行: %d", required)
+		}
 	case automation.GateResourceItem:
 		available := int64(r.state.Inventory()[gate.ItemID])
 		if available < required {

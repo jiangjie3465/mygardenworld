@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"time"
@@ -11,8 +12,13 @@ import (
 
 func (r *Runner) connectionLoop(ctx context.Context, username, password string, client *babigame.Client) {
 	current := client
+	defer func() {
+		if current != nil {
+			_ = current.Close()
+			r.clearDisconnectedClient(current)
+		}
+	}()
 
-connection:
 	for {
 		if current != nil {
 			select {
@@ -31,48 +37,60 @@ connection:
 				return
 			}
 			current = next
+			r.emitConnectionRecovered()
 			continue
 		}
 		if r.isSessionInvalidated() {
 			return
 		}
 		message := "网络连接断开，准备重连"
-		if current == nil {
+		if r.restrictionError() != nil {
+			message = "账号请求保护恢复已启动，按当前设置等待冷却并核验恢复"
+		} else if current == nil {
 			message = "WebSocket 首次连接失败，准备自动重连"
 		}
 		r.emit(Event{Kind: "ws_disconnected", Message: message, Level: "warn"})
 
-		wait := reconnectInitialWait
-		for {
-			if !sleepOrDone(ctx, wait) || r.isSessionInvalidated() {
-				if r.autoReloginPending() {
-					current = nil
-					continue connection
-				}
-				return
-			}
-			next, err := r.connectStoredOrFresh(ctx, username, password)
-			if err == nil {
-				current = next
-				break
-			}
-			if isReputationGuardError(err) {
-				return
-			}
-			if ctx.Err() != nil || r.isSessionInvalidated() {
-				if r.autoReloginPending() {
-					current = nil
-					continue connection
-				}
-				return
-			}
-			r.emit(Event{
-				Kind:    "ws_disconnected",
-				Message: fmt.Sprintf("重连失败: %v；%s 后重试", err, nextReconnectWait(wait)),
-				Level:   "warn",
-			})
-			wait = nextReconnectWait(wait)
+		current = r.reconnect(ctx, username, password)
+		if current != nil {
+			r.emitConnectionRecovered()
+		} else if !r.autoReloginPending() {
+			return
 		}
+	}
+}
+
+func (r *Runner) reconnect(ctx context.Context, username, password string) *babigame.Client {
+	stopWatching := r.watchConnectionRecovery(ctx)
+	defer stopWatching()
+	wait := reconnectInitialWait
+	for {
+		if !sleepOrDone(ctx, wait) || r.isSessionInvalidated() {
+			return nil
+		}
+		next, err := r.connectStoredOrFresh(ctx, username, password)
+		if err == nil {
+			return next
+		}
+		if ctx.Err() != nil || errors.Is(err, ErrMaintenance) || isReputationGuardError(err) {
+			return nil // Administrative cancellation is not a failed recovery probe.
+		}
+		if r.isSessionInvalidated() {
+			return nil
+		}
+		if r.restrictionError() != nil {
+			// Coded failures have their own incident and recovery validation.
+			if s, revision := r.accountSafetySnapshot(); s.RestrictedUntilMS <= time.Now().UnixMilli() {
+				r.deferRestrictionProbe(revision, err)
+			}
+			if !r.waitAccountRestriction(ctx) {
+				return nil
+			}
+			wait = reconnectInitialWait
+			continue
+		}
+		r.emit(Event{Kind: "ws_disconnected", Message: fmt.Sprintf("重连失败: %v；%s 后重试", err, nextReconnectWait(wait)), Level: "warn"})
+		wait = nextReconnectWait(wait)
 	}
 }
 

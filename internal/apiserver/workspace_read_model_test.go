@@ -10,6 +10,7 @@ import (
 	"time"
 
 	pb "github.com/SilkageNet/mygardenworld/gen/mygardenworld/v1"
+	"github.com/SilkageNet/mygardenworld/internal/auth"
 	"github.com/SilkageNet/mygardenworld/internal/automation"
 	"github.com/SilkageNet/mygardenworld/internal/runner"
 	"github.com/SilkageNet/mygardenworld/internal/state"
@@ -29,7 +30,7 @@ func TestWorkspaceReadySourcesCapabilitiesAndStatuses(t *testing.T) {
 	if len(featureCapabilitiesProto()) == 0 {
 		t.Fatal("feature capabilities are missing")
 	}
-	statuses, err := svc.accountStatuses(ctx)
+	statuses, err := svc.accountStatuses(auth.ContextWithIdentity(ctx, &auth.Identity{UserID: 1, Role: "user"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,6 +186,36 @@ func TestBuildFmlLandViewsExposesPlantingInfo(t *testing.T) {
 	}
 	if got[1].GetRecommendation() != "plant" || got[1].GetFlowerId() != 0 || got[1].GetFlowerLvl() != 0 {
 		t.Fatalf("land 2 = %q flower=%d lvl=%d, want plant empty", got[1].GetRecommendation(), got[1].GetFlowerId(), got[1].GetFlowerLvl())
+	}
+}
+
+func TestFmlLandViewAfterRepeatedHarvests(t *testing.T) {
+	now := time.UnixMilli(1_800_000_000_000)
+	for _, tt := range []struct {
+		name    string
+		stock   int32
+		elapsed time.Duration
+		pending int32
+		next    int64
+		want    string
+	}{
+		{"full stock after earlier harvests", 6, 0, 6, 0, "harvest"},
+		{"recently emptied", 0, 5 * time.Minute, 0, now.Add(10 * time.Minute).UnixMilli(), "wait"},
+		{"new flower after earlier harvests", 0, 15 * time.Minute, 1, 0, "harvest"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			land := state.FmlLandView{
+				LandID: 1, FlowerID: 23001, MatureFlowerCnt: tt.stock, HarvestedCnt: 100,
+				StartTimeMs: now.Add(-24 * time.Hour).UnixMilli(), LastCalcTimeMs: now.Add(-tt.elapsed).UnixMilli(),
+			}
+			got := fmlLandViewProto(land, nil, now)
+			if got.GetPendingHarvest() != tt.pending || got.GetNextMatureMs() != tt.next || got.GetRecommendation() != tt.want {
+				t.Fatalf("view=%+v", got)
+			}
+			if got.GetHarvestedCount() != 100 {
+				t.Fatal("view must preserve observed harvest history")
+			}
+		})
 	}
 }
 

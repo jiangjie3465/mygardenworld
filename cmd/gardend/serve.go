@@ -20,6 +20,7 @@ import (
 	"github.com/SilkageNet/mygardenworld/internal/apiserver"
 	"github.com/SilkageNet/mygardenworld/internal/auth"
 	"github.com/SilkageNet/mygardenworld/internal/babigame"
+	"github.com/SilkageNet/mygardenworld/internal/notification"
 	redeemsvc "github.com/SilkageNet/mygardenworld/internal/redeem"
 	"github.com/SilkageNet/mygardenworld/internal/runner"
 	"github.com/SilkageNet/mygardenworld/internal/store"
@@ -49,6 +50,7 @@ func newServeCmd() *cobra.Command {
 		insecureDebug    bool
 		webEnabled       bool
 		logRetentionDays int
+		pacing           runner.RequestPacing
 	)
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -83,6 +85,7 @@ func newServeCmd() *cobra.Command {
 				InsecureDebug:    insecureDebug,
 				WebEnabled:       webEnabled,
 				LogRetentionDays: logRetentionDays,
+				Pacing:           pacing,
 			})
 		},
 	}
@@ -105,6 +108,9 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&insecureDebug, "allow-insecure-debug", false, "allow --debug-dir while listening on a non-loopback address")
 	cmd.Flags().BoolVar(&webEnabled, "web", true, "serve the embedded web console")
 	cmd.Flags().IntVar(&logRetentionDays, "log-retention-days", defaultLogRetentionDays, "days to retain event and operation logs (0=keep forever)")
+	cmd.Flags().DurationVar(&pacing.RequestInterval, "game-request-interval", 2*time.Second, "minimum per-account game RPC spacing (heartbeat excluded)")
+	cmd.Flags().DurationVar(&pacing.RepeatInterval, "game-repeat-interval", 8*time.Second, "minimum per-account repeated RPC spacing")
+	cmd.Flags().DurationVar(&pacing.PurchaseInterval, "game-purchase-interval", 30*time.Second, "minimum per-account purchase/hire spacing within each namespace")
 	return cmd
 }
 
@@ -128,6 +134,7 @@ type serveOpts struct {
 	InsecureDebug    bool
 	WebEnabled       bool
 	LogRetentionDays int
+	Pacing           runner.RequestPacing
 }
 
 func generateRandomSecret(n int) string {
@@ -137,6 +144,9 @@ func generateRandomSecret(n int) string {
 }
 
 func runServe(ctx context.Context, opts serveOpts) error {
+	if err := opts.Pacing.Validate(); err != nil {
+		return err
+	}
 	log := buildLogger(opts.LogFormat, opts.LogLevel)
 	logRetention, err := logRetentionDuration(opts.LogRetentionDays)
 	if err != nil {
@@ -164,8 +174,17 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	}
 	defer func() { _ = db.Close() }()
 	log.Info("opened sqlite", "path", dbPath)
+	prepareAutomaticReclaim(ctx, db, log)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	maintenanceCtx, cancelMaintenance := context.WithCancel(ctx)
 	maintenanceDone := make(chan struct{})
+	diagnosticsDone := make(chan struct{})
+	go func() {
+		defer close(diagnosticsDone)
+		runDatabaseDiagnosticsLoop(maintenanceCtx, db, log)
+	}()
 	go func() {
 		defer close(maintenanceDone)
 		runLogCleanupLoop(maintenanceCtx, db, log, logRetention)
@@ -173,6 +192,7 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	defer func() {
 		cancelMaintenance()
 		<-maintenanceDone
+		<-diagnosticsDone
 	}()
 
 	if err := seedAdmin(ctx, db, log, opts); err != nil {
@@ -184,7 +204,19 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	bus := runner.NewBus()
 	mgr := runner.NewManager(db, bus, log)
 	mgr.DebugDir = opts.DebugDir
+	mgr.Pacing = opts.Pacing
 	defer mgr.Shutdown()
+	deletionCtx, cancelDeletion := context.WithCancel(ctx)
+	deletionDone := make(chan struct{})
+	go func() { defer close(deletionDone); mgr.RunAccountDeletions(deletionCtx) }()
+	defer func() { cancelDeletion(); <-deletionDone }()
+	if err := mgr.ApplyMaintenance(ctx); err != nil {
+		return fmt.Errorf("initialize maintenance gate: %w", err)
+	}
+	gameMaintenanceCtx, cancelGameMaintenance := context.WithCancel(ctx)
+	gameMaintenanceDone := make(chan struct{})
+	go func() { defer close(gameMaintenanceDone); mgr.RunMaintenance(gameMaintenanceCtx) }()
+	defer func() { cancelGameMaintenance(); <-gameMaintenanceDone }()
 	redeemService, err := redeemsvc.NewService(ctx, db, mgr, log)
 	if err != nil {
 		return fmt.Errorf("initialize redeem exchange: %w", err)
@@ -222,6 +254,13 @@ func runServe(ctx context.Context, opts serveOpts) error {
 		}),
 	}
 	handlers := apiserver.NewHandlers(svc)
+	notificationCtx, cancelNotifications := context.WithCancel(ctx)
+	notificationsDone := make(chan struct{})
+	go func() {
+		defer close(notificationsDone)
+		notification.New(db, log).Run(notificationCtx)
+	}()
+	defer func() { cancelNotifications(); <-notificationsDone }()
 
 	authInterceptor := auth.NewInterceptor(jwtSvc, func(ctx context.Context, userID int64) (*auth.Identity, error) {
 		user, err := db.GetUserByID(ctx, userID)
@@ -267,6 +306,9 @@ func runServe(ctx context.Context, opts serveOpts) error {
 
 	// All other services: protected
 	for _, mounter := range []func() (string, http.Handler){
+		func() (string, http.Handler) {
+			return mygardenworldv1connect.NewNotificationServiceHandler(handlers.Notification, protectedOpts...)
+		},
 		func() (string, http.Handler) {
 			return mygardenworldv1connect.NewAccountServiceHandler(handlers.Account, protectedOpts...)
 		},

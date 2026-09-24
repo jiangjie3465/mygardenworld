@@ -1,5 +1,4 @@
-// Package state tracks per-account land + inventory state. This is the Go
-// port of GardenState from scripts/tools/garden_bot.py.
+// Package state tracks authoritative per-account observations and typed views.
 //
 // The tracker is fed v-namespace fragments (typically `100` and `7`) from
 // either index.reLogin responses (initial bulk) or per-RPC responses (delta
@@ -112,6 +111,7 @@ func New() *State {
 	s.pearlHireStates = make(map[int64]*PearlCandidateHireState)
 	s.pearlEnemies = make(map[int64]int64)
 	s.pearlHireFailedUntil = make(map[int64]int64)
+	s.pearlHireSkippedUIDs = make(map[int64]struct{})
 	s.flowerOrders = make(map[int32]*FlowerOrder)
 	s.flowerOrderRewardsReceived = make(map[int32]bool)
 	s.dailyTasks = make(map[int32]*DailyTaskView)
@@ -130,6 +130,14 @@ func New() *State {
 	s.zooLogs = make(map[string]*ZooLogView)
 	s.zooSouvenirs = make(map[int32]*ZooSouvenirView)
 	return s
+}
+
+// SetOnRaceChange installs a notification for task, progress, batch or quota
+// changes. It runs outside the state lock; repeated snapshots do not notify.
+func (s *State) SetOnRaceChange(fn func()) {
+	s.mu.Lock()
+	s.onRaceChange = fn
+	s.mu.Unlock()
 }
 
 // SetOnChange installs a callback fired whenever lands change. Called with

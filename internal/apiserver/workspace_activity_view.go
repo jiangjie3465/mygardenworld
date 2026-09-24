@@ -8,6 +8,7 @@ import (
 
 	pb "github.com/SilkageNet/mygardenworld/gen/mygardenworld/v1"
 	"github.com/SilkageNet/mygardenworld/internal/automation"
+	"github.com/SilkageNet/mygardenworld/internal/runner"
 	"github.com/SilkageNet/mygardenworld/internal/state"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -31,12 +32,14 @@ var fmlRaceTaskLabels = map[int32]string{
 
 func fmlRaceProto(view state.FmlRaceView, s *state.State, racePolicy *pb.UnionRacePolicy, uid int64, now time.Time, gates automation.RaceModuleGates) *pb.FmlRaceView {
 	out := &pb.FmlRaceView{
-		Observed:        view.Observed,
-		BatchActive:     view.ActiveAt(now),
-		BatchStartMs:    view.BatchStartMs,
-		BatchEndMs:      view.BatchEndMs,
-		BatchStatus:     view.BatchStatus,
-		TasksSyncedAtMs: view.TasksSyncedAtMs,
+		AutoDeleteStatus:  automation.RaceAutoDeleteStatus(s, racePolicy, now),
+		AutoUpgradeStatus: automation.RaceAutoUpgradeStatus(s, racePolicy, now),
+		Observed:          view.Observed,
+		BatchActive:       view.ActiveAt(now),
+		BatchStartMs:      view.BatchStartMs,
+		BatchEndMs:        view.BatchEndMs,
+		BatchStatus:       view.BatchStatus,
+		TasksSyncedAtMs:   view.TasksSyncedAtMs,
 	}
 	if view.TaskQuotaObserved {
 		out.TaskQuotaObserved = true
@@ -87,19 +90,30 @@ func fmlRaceProto(view state.FmlRaceView, s *state.State, racePolicy *pb.UnionRa
 		if taskType == 0 {
 			taskType = t.TaskId
 		}
+		deleteBlockedReason := automation.RaceDeleteSkipReason(s, t, now)
+		switch {
+		case racePolicy == nil || !racePolicy.GetEnabled():
+			deleteBlockedReason = "请先开启公会竞赛"
+		case !view.Observed || !view.ActiveAt(now):
+			deleteBlockedReason = "当前不在竞赛期间"
+		case !view.TasksObserved || view.TaskPoolStale:
+			deleteBlockedReason = "竞赛任务池尚未同步"
+		}
 		out.Tasks = append(out.Tasks, &pb.FmlRaceTask{
-			MsId:           t.MsId,
-			TaskId:         t.TaskId,
-			TaskType:       taskType,
-			TaskLabel:      fmlRaceTaskLabels[taskType],
-			Score:          t.Score,
-			IsUpgrade:      t.IsUpgrade != 0,
-			UpgradeUid:     t.UpgradeUid,
-			TargetLabel:    t.TargetLabel,
-			AppearTimeMs:   t.AppearTime,
-			TakeSkipReason: automation.RaceTakeSkipReason(s, t, racePolicy, uid, now, gates),
-			TargetCnt:      t.TargetCnt,
-			FinishCnt:      t.FinishCnt,
+			MsId:                t.MsId,
+			TaskId:              t.TaskId,
+			TaskType:            taskType,
+			TaskLabel:           fmlRaceTaskLabels[taskType],
+			Score:               t.Score,
+			IsUpgrade:           t.IsUpgrade != 0,
+			UpgradeUid:          t.UpgradeUid,
+			TargetLabel:         t.TargetLabel,
+			AppearTimeMs:        t.AppearTime,
+			TakeSkipReason:      automation.RaceTakeSkipReason(s, t, racePolicy, uid, now, gates),
+			TargetCnt:           t.TargetCnt,
+			FinishCnt:           t.FinishCnt,
+			DeleteAllowed:       deleteBlockedReason == "",
+			DeleteBlockedReason: deleteBlockedReason,
 		})
 	}
 	return out
@@ -111,6 +125,37 @@ func activityItemsProto(items []state.ItemCount) []*pb.ActivityItem {
 		out = append(out, activityItemProto(item))
 	}
 	return out
+}
+
+// Project runner-owned safety into existing race status/button fields; the
+// read model does not decide timing or perform game requests.
+func applyRaceRequestSafety(view *pb.FmlRaceView, policy *pb.UnionRacePolicy, diag runner.Diagnostics) {
+	if view == nil {
+		return
+	}
+	cooldowns := cooldownsByOperation(diag)
+	cd, paused := cooldowns["account.request"]
+	if !paused {
+		var ok bool
+		cd, ok = cooldowns["union.race.delete.interval"]
+		if !ok {
+			return
+		}
+	}
+	reason := cd.Reason
+	if !paused {
+		reason = fmt.Sprintf("%s · %s 后可重试", reason, cd.Until.Local().Format("15:04:05"))
+	}
+	if policy.GetDeleteLowScoreTask() {
+		view.AutoDeleteStatus = reason
+	}
+	for _, task := range view.Tasks {
+		task.DeleteAllowed = false
+		task.DeleteBlockedReason = reason
+		if paused {
+			task.TakeSkipReason = cd.Reason
+		}
+	}
 }
 
 func activityItemProto(item state.ItemCount) *pb.ActivityItem {
@@ -202,11 +247,22 @@ func buildPendingTasksAtPolicy(st *state.State, now time.Time, policy *pb.Policy
 		if len(reqs) == 0 {
 			continue
 		}
+		var coins *int64
+		if amount, known := state.CustomerOrderFloralCoinReward(order); known {
+			coins = &amount
+		}
+		skipReason := automation.CustomerOrderRewardSkipReason(order, policy.GetOrder().GetCustomer())
+		status := requirementsStatus(reqs)
+		if skipReason != "" {
+			status = pb.PlanStatus_PLAN_STATUS_SKIPPED
+		}
 		out = append(out, &pb.PendingTaskView{
 			Category:                "顾客订单",
 			Id:                      strconv.FormatInt(int64(npcID), 10),
 			Title:                   fmt.Sprintf("顾客订单 NPC=%d", npcID),
-			Status:                  requirementsStatus(reqs),
+			Status:                  status,
+			FloralCoinReward:        coins,
+			AutomationSkipReason:    skipReason,
 			Requirements:            reqs,
 			ExecutionFeature:        pb.TaskExecutionFeature_TASK_EXECUTION_FEATURE_CUSTOMER_ORDER,
 			AutoCompletionSupported: true,
