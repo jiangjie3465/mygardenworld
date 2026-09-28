@@ -24,6 +24,9 @@ import com.mygardenworld.v1.UnionRacePolicy
 import com.mygardenworld.v1.ActivityPolicy
 import com.mygardenworld.v1.CyclicNotePolicy
 import com.mygardenworld.v1.CyclicStoryPolicy
+import com.mygardenworld.v1.FriendStealPolicy
+import com.mygardenworld.v1.ShopBuyPolicy
+import com.mygardenworld.v1.ZooPolicy
 
 /**
  * Immutable update helpers for nested policy messages. Java Lite builders do
@@ -44,9 +47,13 @@ object PolicyLens {
     inline fun Policy.benefit(block: BenefitPolicy.Builder.() -> Unit): Policy = basic { setBenefit(benefit.toBuilder().apply(block)) }
     inline fun Policy.sign(block: SignPolicy.Builder.() -> Unit): Policy = basic { setSign(sign.toBuilder().apply(block)) }
     inline fun Policy.pearl(block: PearlPolicy.Builder.() -> Unit): Policy = basic { setPearl(pearl.toBuilder().apply(block)) }
+    inline fun Policy.cultivateShop(block: ShopBuyPolicy.Builder.() -> Unit): Policy =
+        basic { setShop(shop.toBuilder().setCultivateShop(shop.cultivateShop.toBuilder().apply(block))) }
+    inline fun Policy.zoo(block: ZooPolicy.Builder.() -> Unit): Policy = basic { setZoo(zoo.toBuilder().apply(block)) }
 
     inline fun Policy.planting(block: PlantingPolicy.Builder.() -> Unit): Policy = plant { setPlanting(planting.toBuilder().apply(block)) }
     inline fun Policy.cultivate(block: CultivatePolicy.Builder.() -> Unit): Policy = plant { setCultivate(cultivate.toBuilder().apply(block)) }
+    inline fun Policy.friendSteal(block: FriendStealPolicy.Builder.() -> Unit): Policy = plant { setFriendSteal(friendSteal.toBuilder().apply(block)) }
 
     inline fun Policy.customer(block: CustomerOrderPolicy.Builder.() -> Unit): Policy = order { setCustomer(customer.toBuilder().apply(block)) }
     inline fun Policy.resident(block: ResidentOrderPolicy.Builder.() -> Unit): Policy = order { setResident(resident.toBuilder().apply(block)) }

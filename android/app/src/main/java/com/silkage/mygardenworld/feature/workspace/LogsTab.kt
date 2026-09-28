@@ -56,11 +56,36 @@ fun eventMatchesView(event: Event, view: LogView): Boolean = when (view) {
     LogView.KEY -> event.kind !in STATE_KINDS && event.kind != "operation_planned"
 }
 
+private fun isRaceSync(event: Event): Boolean {
+    if (event.domain == "union.race.sync" || event.kind == "race_task_sync") return true
+    return Format.eventTitle(event).contains("同步竞赛任务") || Format.eventMessage(event).contains("同步竞赛任务")
+}
+
+private fun isRaceSyncComplete(event: Event): Boolean {
+    if (!isRaceSync(event) || event.kind == "operation_planned") return false
+    if (event.kind == "race_task_sync" || event.kind == "operation_ack") return true
+    val message = Format.eventMessage(event)
+    return Format.eventTitle(event) == "同步竞赛任务" || message.contains("同步竞赛任务 完成") || message == "完成"
+}
+
+/** Web collapseRaceSyncLogEvents: drop planned race syncs and keep only the newest completed sync. */
+fun collapseRaceSyncLogEvents(events: List<Event>): List<Event> {
+    var keptLatest = false
+    return events.filter { event ->
+        when {
+            event.kind == "operation_planned" && isRaceSync(event) -> false
+            !isRaceSyncComplete(event) -> true
+            keptLatest -> false
+            else -> { keptLatest = true; true }
+        }
+    }
+}
+
 @Composable
 fun LogsTab(workspace: WorkspaceUiState, onLoadMore: () -> Unit) {
     var category by rememberSaveable { mutableStateOf(-1) }
     var view by rememberSaveable { mutableStateOf(LogView.KEY) }
-    val events = workspace.logs.events
+    val events = remember(workspace.logs.events) { collapseRaceSyncLogEvents(workspace.logs.events) }
     val visible = remember(events, category, view) {
         events.filter { (category < 0 || it.categoryValue == category) && eventMatchesView(it, view) }
     }

@@ -91,6 +91,34 @@ object Format {
 
     fun accountConnected(account: Account?, status: AccountStatus?): Boolean = status?.connected ?: (account?.connected ?: false)
 
+    /** Durable deletion intent; the account stays listed until cleanup completes. */
+    fun accountDeleting(account: Account?, status: AccountStatus?): Boolean = account?.deletionPending == true || status?.deletionPending == true
+
+    fun duration(seconds: Long): String = when {
+        seconds <= 0 -> "-"
+        seconds < 60 -> "${seconds}秒"
+        seconds < 3600 -> "${seconds / 60}分" + if (seconds % 60 > 0) "${seconds % 60}秒" else ""
+        else -> "${seconds / 3600}小时" + if (seconds % 3600 >= 60) "${seconds % 3600 / 60}分" else ""
+    }
+
+    private val deletionPhases = mapOf(
+        "queued" to "等待后台清理", "wait_lifecycle" to "等待账号操作结束", "stop_runner" to "停止账号连接",
+        "drain_game_work" to "等待游戏请求结束", "wait_writer" to "等待数据库写连接", "begin_transaction" to "等待数据库写锁",
+        "event_log" to "清理运行日志", "operation_log" to "清理操作日志", "redeem_attempts" to "清理兑换记录",
+        "notification_outbox" to "清理通知记录", "notification_incidents" to "清理通知状态", "commit" to "提交本批清理", "finalize" to "移除账号记录",
+    )
+
+    private val deletionErrors = mapOf(
+        "busy" to "数据库正被其他操作占用", "timeout" to "本阶段处理超时", "cancelled" to "本次清理被中断",
+        "disk_full" to "磁盘空间不足，请先释放空间", "io" to "磁盘读写失败，请检查存储状态",
+        "permission" to "数据库写入权限不足，请检查文件和目录权限", "corrupt" to "数据库异常，请停止服务并检查备份",
+        "database" to "数据库清理失败，请查看服务进程日志中的 account deletion deferred",
+    )
+
+    fun deletionPhase(phase: String): String = deletionPhases[phase] ?: "后台处理中"
+
+    fun deletionError(kind: String): String = deletionErrors[kind] ?: deletionErrors.getValue("database")
+
     fun statusIssues(status: AccountStatus?): List<String> {
         if (status == null) return emptyList()
         val d = status.diagnostics
@@ -111,6 +139,7 @@ object Format {
 
     /** Returns label and tone for the health badge. */
     fun healthBadge(account: Account?, status: AccountStatus?): Pair<String, BadgeTone> = when {
+        accountDeleting(account, status) -> (if (status?.deletionFailed ?: account?.deletionFailed == true) "清理待重试" else "删除中") to BadgeTone.NEUTRAL
         accountAbnormal(status) -> "异常" to BadgeTone.DANGER
         !accountConnected(account, status) -> "离线" to BadgeTone.NEUTRAL
         else -> "在线" to BadgeTone.SUCCESS

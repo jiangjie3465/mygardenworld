@@ -11,10 +11,12 @@ import com.silkage.mygardenworld.core.auth.KeystoreTokenStore
 import com.silkage.mygardenworld.core.auth.SessionsRepository
 import com.silkage.mygardenworld.core.game.Catalog
 import com.silkage.mygardenworld.core.network.ConnectClient
+import com.silkage.mygardenworld.core.protocol.ProtoJson
 import com.silkage.mygardenworld.core.protocol.WorkspaceRepository
 import com.silkage.mygardenworld.core.protocol.WorkspaceSocket
 import com.silkage.mygardenworld.feature.accounts.AccountsRepository
 import com.silkage.mygardenworld.feature.admin.AdminRepository
+import com.silkage.mygardenworld.feature.notifications.NotificationsRepository
 import com.silkage.mygardenworld.feature.redeem.RedeemRepository
 import com.silkage.mygardenworld.feature.workspace.PolicyRepository
 import kotlinx.coroutines.CoroutineScope
@@ -27,7 +29,7 @@ import kotlinx.coroutines.launch
  * lifecycle: connected while the app is in the foreground and signed in,
  * disconnected in the background, and reconnected with the log cursor on resume.
  */
-class AppContainer(application: Application) {
+class AppContainer(private val application: Application) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val http = ConnectClient.defaultHttpClient()
     val auth = AuthSession(KeystoreTokenStore(application), http, deviceName = "${Build.MANUFACTURER} ${Build.MODEL}".trim())
@@ -35,11 +37,15 @@ class AppContainer(application: Application) {
     val policies = PolicyRepository(auth.rpc)
     val redeem = RedeemRepository(auth.rpc)
     val admin = AdminRepository(auth.rpc)
+    val notifications = NotificationsRepository(auth.rpc)
     val sessions = SessionsRepository(auth.rpc) { auth.deviceId }
     val workspace = WorkspaceRepository()
     val socket = WorkspaceSocket(scope, auth, http) { auth.rpc.baseUrl }
     @Volatile var catalog: Catalog = Catalog.EMPTY
         private set
+
+    /** Descriptor-driven protojson for policy import/export; null if the asset is unreadable. */
+    val protoJson: ProtoJson? by lazy { runCatching { ProtoJson.load(application) }.getOrNull() }
 
     private var foreground = false
 

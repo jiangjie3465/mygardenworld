@@ -46,12 +46,16 @@ abstract class GenerateProtoTask : DefaultTask() {
     @get:InputDirectory @get:PathSensitive(PathSensitivity.RELATIVE) abstract val protoDirectory: DirectoryProperty
     @get:InputDirectory @get:PathSensitive(PathSensitivity.RELATIVE) abstract val includeDirectory: DirectoryProperty
     @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
+    /** Registered as a generated assets root; receives proto.desc for protojson import/export. */
+    @get:OutputDirectory abstract val descriptorDirectory: DirectoryProperty
 
     @TaskAction
     fun generate() {
         val out = outputDirectory.get().asFile
-        fs.delete { delete(out) }
+        val descriptors = descriptorDirectory.get().asFile
+        fs.delete { delete(out, descriptors) }
         out.mkdirs()
+        descriptors.mkdirs()
         val protoc = protocExecutable.singleFile
         protoc.setExecutable(true)
         val root = protoDirectory.get().asFile
@@ -62,6 +66,7 @@ abstract class GenerateProtoTask : DefaultTask() {
             args("-I", root.absolutePath)
             args("-I", includeDirectory.get().asFile.absolutePath)
             args("--java_out=lite:${out.absolutePath}")
+            args("--descriptor_set_out=${descriptors.resolve("proto.desc").absolutePath}", "--include_imports")
             args(files)
         }
     }
@@ -92,6 +97,7 @@ abstract class TrimCatalogTask : DefaultTask() {
         val flowerMeta = LinkedHashMap<String, Map<String, Any?>>()
         for ((id, flower) in flowers) {
             flowerMeta[id] = mapOf(
+                "color" to (items[id]?.get("color") ?: 0),
                 "seed_id" to (flower["seed_id"] ?: 0),
                 "sort" to (flower["sort"] ?: 0),
                 "gold" to (flower["gold"] ?: 0),
@@ -121,6 +127,7 @@ val generateProto by tasks.registering(GenerateProtoTask::class) {
     protoDirectory.set(protoRoot)
     includeDirectory.set(extractProtoIncludes.map { layout.buildDirectory.dir("proto-includes").get() })
     outputDirectory.set(layout.buildDirectory.dir("generated/source/proto/java"))
+    descriptorDirectory.set(layout.buildDirectory.dir("generated/proto-descriptor/assets"))
 }
 
 // Release signing comes from android/keystore.properties (gitignored, see
@@ -214,6 +221,7 @@ androidComponents {
     onVariants { variant ->
         variant.sources.java?.addGeneratedSourceDirectory(generateProto, GenerateProtoTask::outputDirectory)
         variant.sources.assets?.addGeneratedSourceDirectory(trimCatalog, TrimCatalogTask::outputDirectory)
+        variant.sources.assets?.addGeneratedSourceDirectory(generateProto, GenerateProtoTask::descriptorDirectory)
     }
 }
 

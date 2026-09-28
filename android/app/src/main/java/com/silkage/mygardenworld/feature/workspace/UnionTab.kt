@@ -12,7 +12,10 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -46,7 +49,16 @@ import com.silkage.mygardenworld.core.ui.SectionCard
 import kotlinx.coroutines.delay
 
 @Composable
-fun UnionTab(workspace: WorkspaceUiState, policy: Policy?, catalog: Catalog, busyTaskId: Long, raceMessage: String, onTakeTask: (FmlRaceTask) -> Unit) {
+fun UnionTab(
+    workspace: WorkspaceUiState,
+    policy: Policy?,
+    catalog: Catalog,
+    busyTaskId: Long,
+    busyDeleteId: Long,
+    raceMessage: String,
+    onTakeTask: (FmlRaceTask) -> Unit,
+    onDeleteTask: (FmlRaceTask) -> Unit,
+) {
     val union = workspace.state?.takeIf { it.hasUnion() }?.union
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         when {
@@ -85,8 +97,11 @@ fun UnionTab(workspace: WorkspaceUiState, policy: Policy?, catalog: Catalog, bus
                         showScore = policy?.union?.race?.showPersonalScoreRank ?: false,
                         online = workspace.online,
                         busyTaskId = busyTaskId,
+                        busyDeleteId = busyDeleteId,
+                        canDelete = union.raceDeleteAllowed,
                         message = raceMessage,
                         onTake = onTakeTask,
+                        onDelete = onDeleteTask,
                     )
                 }
             }
@@ -142,7 +157,19 @@ private fun FmlLandTile(land: FmlLandView, catalog: Catalog, modifier: Modifier)
 }
 
 @Composable
-private fun RacePanel(race: FmlRaceView?, showTaken: Boolean, showScore: Boolean, online: Boolean, busyTaskId: Long, message: String, onTake: (FmlRaceTask) -> Unit) {
+private fun RacePanel(
+    race: FmlRaceView?,
+    showTaken: Boolean,
+    showScore: Boolean,
+    online: Boolean,
+    busyTaskId: Long,
+    busyDeleteId: Long,
+    canDelete: Boolean,
+    message: String,
+    onTake: (FmlRaceTask) -> Unit,
+    onDelete: (FmlRaceTask) -> Unit,
+) {
+    var deleteTarget by remember { mutableStateOf<FmlRaceTask?>(null) }
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { delay(1000); nowMs = System.currentTimeMillis() } }
     var onlyReady by rememberSaveable { mutableStateOf(false) }
@@ -193,6 +220,8 @@ private fun RacePanel(race: FmlRaceView?, showTaken: Boolean, showScore: Boolean
                     FilterChip(selected = onlyReady, onClick = { onlyReady = true }, label = { Text("可抢 $readyCount") })
                     FilterChip(selected = sortByScore, onClick = { sortByScore = !sortByScore }, label = { Text(if (sortByScore) "分数 ↓" else "池顺序") })
                 }
+                race?.autoUpgradeStatus?.takeIf { it.isNotBlank() }?.let { Text("自动升级：$it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                race?.autoDeleteStatus?.takeIf { it.isNotBlank() }?.let { Text("自动删除：$it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 if (race != null && race.tasksSyncedAtMs > 0) Text("任务池更新于 ${Format.clock(race.tasksSyncedAtMs)} · 约每 30 秒校准", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                 val visible = tasks.withIndex()
@@ -215,12 +244,36 @@ private fun RacePanel(race: FmlRaceView?, showTaken: Boolean, showScore: Boolean
                         }
                         Text(listOfNotNull("${task.score} 分", Format.raceTaskProgress(task), if (task.upgradeUid > 0) "升级人 #${task.upgradeUid}" else null).joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text(availability, style = MaterialTheme.typography.labelSmall, color = if (takeable && canTake) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-                            if (takeable && canTake) Button(onClick = { onTake(task) }, enabled = online && busyTaskId == 0L, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)) { Text(if (busyTaskId == task.msId) "接取中" else "手动抢") }
+                            Text(availability, style = MaterialTheme.typography.labelSmall, color = if (takeable && canTake) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                            if (canDelete) {
+                                OutlinedButton(
+                                    onClick = { deleteTarget = task },
+                                    enabled = online && task.deleteAllowed && busyDeleteId == 0L && busyTaskId == 0L,
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                                ) { Text(if (busyDeleteId == task.msId) "删除中" else "删除", color = MaterialTheme.colorScheme.error) }
+                            }
+                            if (takeable && canTake) Button(onClick = { onTake(task) }, enabled = online && busyTaskId == 0L && busyDeleteId == 0L, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp), modifier = Modifier.padding(start = 6.dp)) { Text(if (busyTaskId == task.msId) "接取中" else "手动抢") }
+                        }
+                        if (canDelete && !task.deleteAllowed && task.deleteBlockedReason.isNotBlank()) {
+                            Text(task.deleteBlockedReason, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
             }
         }
+    }
+    deleteTarget?.let { task ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("删除竞赛任务") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("该操作会立即从任务池移除这个任务，并让对应槽位进入刷新冷却。", style = MaterialTheme.typography.bodySmall)
+                    Text(task.taskLabel.ifBlank { "任务 #${task.taskId}" } + (if (task.targetLabel.isNotBlank()) " · ${task.targetLabel}" else "") + "\n${task.score} 分 · 任务 #${task.msId}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                }
+            },
+            confirmButton = { TextButton(onClick = { onDelete(task); deleteTarget = null }) { Text("确认删除", color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("取消") } },
+        )
     }
 }

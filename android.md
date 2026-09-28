@@ -64,14 +64,28 @@ Android P4（已提交）：
 
 修过的问题：新增账号等长耗时 RPC 超时（改为 180 秒）；业务 RPC 返回 `unauthenticated` 时误登出；重进同账号时追赶日志页覆盖了日志窗口。
 
+Web 功能对齐（2026-09-28，未提交）：
+
+- 起因：生产账号「潘婷」处于 5000 请求保护，点「启动」失败却无任何提示。原因是 `AccountsViewModel` 用 `runCatching` 吞掉了 `ConnectAccount` 的错误，且 Android 从未展示 `AccountStatus` 的异常原因；恢复所需的「5000 异常后允许重新登录」开关只存在于 Web。
+- 启动/暂停与 Web 一致：启动 = `ConnectAccount`，暂停/停止 = `DisconnectAccount`，失败直接显示；账号卡片显示首条异常原因；工作区顶部有可折叠的「异常信息」横幅，遇到 5000 保护时指出缺少的开关并提供「前往设置」。
+- 设置页按 Web 的 基础/花园/订单/公会/活动 五组完整移植（隐藏 Web 同样隐藏的未支持项），新增：5000 重新登录、兑换码离线自动上线、商城、宠物、自主补种（范围/品质/花朵）、生产需求优先级排序、好友摸花（好友列表、排除、指定次数）、居民订单品质、顾客指定花坊币与今日进度、上架花艺选择、公会土地花朵/品质、公会摸花模式/品质/花朵、竞赛删除间隔与任务类型优先级、能力状态徽标；公会设置不再依赖成员资格才显示。
+- 配置 JSON 导入/导出：构建期 protoc 额外输出 `proto.desc`，`core/protocol/ProtoJson` 基于描述符实现 protojson，导出与 Web 逐字节一致，可导入服务端 protojson。
+- 账号：重新登录/更新凭据（iOS 密码、Alipay 原账号扫码）、新增账号时复制已有账号配置、一键全部启动/暂停与选择批量管理、删除中状态与清理进度。
+- 公会竞赛：手动删除任务（含确认、权限与原因）、自动升级/自动删除状态。
+- 个人通知页（WebSocket `LoadUserNotifications` + `SaveNotificationSettings/TestNotification`，投递记录分页、Webhook 说明）；系统维护横幅（`MaintenanceView`）。
+- 兑换码中心：录入自定义时长；管理员数据源管理（增改删、立即同步、统计）与兑换码有效期修正。
+- 日志页折叠竞赛同步日志；工作区顶栏刷新按钮。
+- 修复：冷启动恢复登录遇到瞬时网络错误时永久停在「正在恢复登录…」，现自动退避重试并提供「立即重试 / 退出登录」。
+- JVM 单元测试 43 个（新增 ProtoJson、5000 提示、通知保存规则、维护/通知帧、日志折叠）；`minifiedDebug` 在模拟器上对生产环境验证通过。
+
 ### 与本文件的差距
 
 - [x] 生产部署：`https://dztel.dztddev.com` 由 Nginx 反代到 systemd 运行的 gardend（见 `deploy/nginx/`），证书由 certbot 自动续期；凭据在 `deploy/credentials.local.md`（gitignore）；release APK 已在模拟器上通过该域名完成登录与 WebSocket 连接，证书链验证通过。
 - [ ] 真机 Redmi K100 Pro 验收（第 10 节真机清单）。
-- [ ] 日志页尚未实现 Web 的“竞赛同步日志折叠”。
-- [ ] 策略中的品质/花朵多选（SelectionMode 与 id 列表）尚未提供编辑器，只能编辑开关与数值。
+- [x] 日志页的“竞赛同步日志折叠”。
+- [x] 策略中的品质/花朵多选（SelectionMode 与 id 列表）编辑器。
 - [x] release 签名与 R8：`android/keystore.properties`（gitignored，见 `keystore.properties.example`）提供签名；release 开启 minify + 资源压缩，规则见 `app/proguard-rules.pro`；`minifiedDebug` 变体用于在 http 模拟器上验证 R8 规则。release APK 约 4 MB。
-- [ ] 自动化异常通知（后续扩展）。
+- [x] 自动化异常通知：个人通知设置页（Webhook/企业微信/钉钉/飞书）。
 
 ## 3. 后端和协议
 
@@ -208,10 +222,11 @@ android/
 - [ ] 决定 jf 应用去留；不用则清理其容器和镜像。
 
 ### 三、App 功能补齐
-- [ ] 策略里的品质/花朵多选（`SelectionMode`、id 列表、竞赛任务类型优先级）需要选择器，目前只能改开关和数值。
-- [ ] 日志页的竞赛同步日志折叠，与 Web 一致。
+- [x] 策略里的品质/花朵多选（`SelectionMode`、id 列表、竞赛任务类型优先级）选择器。
+- [x] 日志页的竞赛同步日志折叠，与 Web 一致。
 - [ ] 弱网处理：断网提示与重连倒计时、请求超时的重试按钮。
-- [ ] 自动化异常通知（账号异常、会话失效时推送），后续扩展。
+- [x] 自动化异常通知（账号异常、会话失效时推送）：复用服务端个人通知渠道。
+- [ ] 系统推送（Android 通知栏）尚未实现；目前依赖服务端 Webhook 渠道。
 - [ ] 自适应图标在深色主题下的效果微调。
 
 ### 四、工程与发布

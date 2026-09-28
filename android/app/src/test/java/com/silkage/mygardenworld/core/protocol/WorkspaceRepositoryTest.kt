@@ -4,6 +4,8 @@ import com.mygardenworld.v1.AccountStatus
 import com.mygardenworld.v1.AccountStatusBatch
 import com.mygardenworld.v1.BasicView
 import com.mygardenworld.v1.Event
+import com.mygardenworld.v1.MaintenanceView
+import com.mygardenworld.v1.UserNotificationsView
 import com.mygardenworld.v1.WorkspaceError
 import com.mygardenworld.v1.WorkspaceLogPage
 import com.mygardenworld.v1.WorkspaceLogPageKind
@@ -173,5 +175,23 @@ class WorkspaceRepositoryRedeemTest {
 
         repo.select(8)
         assertEquals("selecting another account clears the feed", 0, repo.state.value.redeem.entries.size)
+    }
+
+    @Test
+    fun maintenanceFollowsReadyThenPushedViews() {
+        val repo = WorkspaceRepository()
+        repo.onEvent(WorkspaceEvent.Ready(WorkspaceReady.newBuilder().setMaintenance(MaintenanceView.newBuilder().setEnabled(true).setDraining(true)).build()))
+        assertTrue(repo.state.value.maintenance!!.draining)
+        repo.onEvent(WorkspaceEvent.Maintenance(MaintenanceView.newBuilder().setEnabled(false).build()))
+        assertFalse(repo.state.value.maintenance!!.enabled)
+    }
+
+    @Test
+    fun notificationsReplaceTheLatestPage() {
+        val repo = WorkspaceRepository()
+        repo.onEvent(WorkspaceEvent.Notifications(UserNotificationsView.newBuilder().setBeforeId(0).setHasMore(true).setNextBeforeId(40).build()))
+        repo.onEvent(WorkspaceEvent.Notifications(UserNotificationsView.newBuilder().setBeforeId(40).build()))
+        assertEquals(40L, repo.state.value.notifications!!.beforeId)
+        assertFalse(repo.state.value.notifications!!.hasMore)
     }
 }

@@ -8,6 +8,8 @@ import com.mygardenworld.v1.AccountStatus
 import com.mygardenworld.v1.AlipayLoginProgress
 import com.mygardenworld.v1.Event
 import com.mygardenworld.v1.FeatureCapability
+import com.mygardenworld.v1.MaintenanceView
+import com.mygardenworld.v1.UserNotificationsView
 import com.mygardenworld.v1.WorkspaceError
 import com.mygardenworld.v1.WorkspaceLogPage
 import com.mygardenworld.v1.WorkspaceLogPageKind
@@ -47,6 +49,8 @@ data class WorkspaceUiState(
     val logs: LogWindow = LogWindow(),
     val redeem: RedeemFeed = RedeemFeed(),
     val alipay: AlipayLoginProgress? = null,
+    val notifications: UserNotificationsView? = null,
+    val maintenance: MaintenanceView? = null,
     val lastError: WorkspaceError? = null,
     val authExpired: Boolean = false,
 ) {
@@ -91,6 +95,7 @@ class WorkspaceRepository(private val maxLogEvents: Int = 1_000) {
                     serverVersion = event.ready.serverVersion,
                     capabilities = event.ready.featureCapabilitiesList,
                     statuses = event.ready.accountsList.associateBy { s -> s.accountId },
+                    maintenance = event.ready.maintenance,
                     authExpired = false,
                 )
             }
@@ -129,6 +134,8 @@ class WorkspaceRepository(private val maxLogEvents: Int = 1_000) {
                 else current.copy(logs = applyLogPage(current.logs, event.page))
             }
             is WorkspaceEvent.AlipayLogin -> _state.update { it.copy(alipay = event.progress) }
+            is WorkspaceEvent.Notifications -> _state.update { it.copy(notifications = event.view) }
+            is WorkspaceEvent.Maintenance -> _state.update { it.copy(maintenance = event.view) }
             is WorkspaceEvent.Error -> _state.update { it.copy(lastError = event.error) }
             is WorkspaceEvent.AuthExpired -> _state.update { it.copy(authExpired = true, connection = WorkspaceConnectionState.CLOSED) }
             is WorkspaceEvent.RedeemAttempts -> _state.update { current ->

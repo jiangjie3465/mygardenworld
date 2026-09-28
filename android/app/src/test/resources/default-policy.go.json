@@ -1,0 +1,267 @@
+{
+  "automation_enabled":  false,
+  "basic":  {
+    "reputation":  {
+      "enabled":  true,
+      "threshold":  80
+    },
+    "reconnect_interval_seconds":  300,
+    "item_log_enabled":  false,
+    "task":  {
+      "main_enabled":  false,
+      "daily_enabled":  false,
+      "weekly_enabled":  false,
+      "story_enabled":  false,
+      "achievement_enabled":  false
+    },
+    "map_event_enabled":  false,
+    "mail_enabled":  false,
+    "benefit":  {
+      "double_coin_enabled":  false,
+      "box_enabled":  false,
+      "share_reward_enabled":  false,
+      "anti_scam_box_enabled":  false
+    },
+    "sign":  {
+      "daily_enabled":  false,
+      "patch_enabled":  false
+    },
+    "pearl":  {
+      "free_enabled":  false,
+      "auto_hire_enabled":  false,
+      "max_hire_level":  0,
+      "max_hire_ticket_usage":  0,
+      "draw_enabled":  false,
+      "protect_enabled":  false,
+      "auto_buy_hire_ticket":  false,
+      "max_spend_diamond":  "0",
+      "daily_hire_ticket_limit":  0
+    },
+    "shop":  {
+      "video_free_gift_enabled":  false,
+      "cultivate_shop":  {
+        "auto_buy":  false,
+        "max_spend_gold":  "0",
+        "max_spend_diamond":  "0",
+        "item_ids":  []
+      },
+      "vip_shop":  {
+        "auto_buy":  false,
+        "max_spend_diamond":  "0",
+        "max_spend_floral_coin":  "0",
+        "item_ids":  []
+      }
+    },
+    "zoo":  {
+      "enabled":  false,
+      "auto_event_enabled":  false,
+      "auto_buy_food":  false,
+      "auto_feed":  false,
+      "auto_stroke":  false,
+      "max_spend_gold":  "0",
+      "max_spend_diamond":  "0"
+    },
+    "waterwheel_enabled":  false,
+    "free_water_enabled":  false,
+    "water_claim_threshold":  0,
+    "road_grow_reward_enabled":  false,
+    "displaced_session_relogin_enabled":  false,
+    "redeem_connect_mode":  "REDEEM_CONNECT_MODE_AUTO",
+    "server_error_fresh_login_enabled":  false
+  },
+  "plant":  {
+    "cultivate":  {
+      "enabled":  false,
+      "video_speed_up_enabled":  false,
+      "upgrade_enabled":  false,
+      "target_level":  20
+    },
+    "planting":  {
+      "auto_enabled":  true,
+      "auto_unlock_land":  false,
+      "auto_harvest_enabled":  true,
+      "min_water_drops":  5,
+      "video_speed_up_enabled":  false,
+      "use_speed_up_ticket":  false,
+      "speed_up_ticket_max":  0,
+      "demand_priority":  {
+        "basic.task.daily":  60,
+        "basic.task.main":  70,
+        "basic.task.weekly":  55,
+        "fallback.auto_replant":  10,
+        "order.customer":  90,
+        "order.flower_art":  40,
+        "order.resident":  80
+      },
+      "demand_priority_enabled":  false,
+      "auto_replant_mode":  "SELECTION_MODE_ALL",
+      "auto_replant_flower_ids":  [],
+      "auto_replant_exclude_flower_ids":  [],
+      "auto_replant_qualities":  [],
+      "auto_replant_min_level":  0,
+      "harvest_delay_seconds":  0
+    },
+    "friend_steal":  {
+      "enabled":  false,
+      "steal_elves":  false,
+      "mode":  "SELECTION_MODE_ALL",
+      "qualities":  [],
+      "flower_ids":  [],
+      "exclude_flower_ids":  [],
+      "auto_buy_times":  false,
+      "friend_mode":  "SELECTION_MODE_ALL",
+      "friend_counts":  {},
+      "exclude_uids":  [],
+      "max_buy_per_friend":  0
+    },
+    "elves":  {
+      "enabled":  false,
+      "selected_ids":  [],
+      "request_aid":  false,
+      "receive_aid":  false,
+      "help_friend":  false,
+      "dispatch":  false,
+      "dispatch_only_double_buff":  false,
+      "speed_up_dispatch":  false,
+      "receive_dispatch_reward":  false,
+      "pass_reward_enabled":  false,
+      "pass_task_reward_enabled":  false,
+      "flower_pass_reward_enabled":  false,
+      "flower_pass_task_reward_enabled":  false,
+      "max_spend_diamond":  "0"
+    },
+    "market":  {
+      "auto_unlock_shelf":  false,
+      "put_enabled":  false,
+      "put_mode":  "MARKET_PUT_MODE_INVENTORY",
+      "specific_flower_ids":  [],
+      "price_index":  2,
+      "max_sell":  25,
+      "put_flower_password":  "",
+      "auto_buy_from_friend":  false,
+      "buy_mode":  "MARKET_BUY_MODE_ALL",
+      "buy_specific_flower_ids":  [],
+      "buy_qualities":  [],
+      "min_put_time_seconds":  0,
+      "max_spend_diamond":  "0",
+      "max_spend_gold":  "0"
+    }
+  },
+  "order":  {
+    "customer":  {
+      "enabled":  false,
+      "reject_unavailable_enabled":  false,
+      "daily_limit":  0,
+      "min_flower_art_count":  0
+    },
+    "resident":  {
+      "normal_enabled":  false,
+      "normal_daily_limit":  1200,
+      "decorate_enabled":  false,
+      "decorate_daily_limit":  120,
+      "satin_enabled":  false,
+      "satin_daily_limit":  120,
+      "qualities":  [],
+      "reward_enabled":  false
+    },
+    "palace":  {
+      "enabled":  false,
+      "qualities":  []
+    },
+    "team":  {
+      "enabled":  false,
+      "one_more_enabled":  false,
+      "submit_only_cultivated":  false,
+      "qualities":  [],
+      "max_spend_diamond":  "0"
+    },
+    "flower_art":  {
+      "auto_unlock_stand":  false,
+      "sell_enabled":  false,
+      "craft_enabled":  false,
+      "early_cancel_enabled":  false,
+      "create_reward_enabled":  false,
+      "collect_reward_enabled":  false,
+      "sell_night_pause_enabled":  false,
+      "sell_art_ids":  []
+    }
+  },
+  "union":  {
+    "build":  {
+      "free_enabled":  false,
+      "gold_enabled":  false,
+      "diamond_enabled":  false,
+      "max_spend_gold":  "0",
+      "max_spend_diamond":  "0"
+    },
+    "flower":  {
+      "share_enabled":  false,
+      "share_mode":  "SELECTION_MODE_UNSPECIFIED",
+      "share_qualities":  [],
+      "share_flower_ids":  [],
+      "take_enabled":  false,
+      "take_mode":  "SELECTION_MODE_UNSPECIFIED",
+      "take_qualities":  [],
+      "take_flower_ids":  []
+    },
+    "race":  {
+      "enabled":  true,
+      "auto_enable_modules":  false,
+      "use_speedup_ticket_in_task":  false,
+      "min_task_score":  28,
+      "only_upgrade_task":  false,
+      "exclude_others_upgrade_task":  true,
+      "task_type_priority":  {
+        "2004":  0,
+        "3006":  0,
+        "3016":  0,
+        "3017":  0,
+        "3018":  0,
+        "3023":  0,
+        "3024":  0,
+        "3030":  0,
+        "3034":  0,
+        "3035":  0,
+        "3036":  5,
+        "3044":  0,
+        "3052":  0
+      },
+      "upgrade_task":  false,
+      "delete_low_score_task":  false,
+      "delete_task_max_score":  0,
+      "max_spend_diamond":  "0",
+      "auto_stop_on_quota_done":  true,
+      "show_personal_score_rank":  false,
+      "avoid_progressed_tasks":  true,
+      "auto_give_up_task":  false,
+      "delete_interval_seconds":  120
+    },
+    "land":  {
+      "harvest_enabled":  false,
+      "auto_plant_enabled":  false,
+      "qualities":  [],
+      "flower_ids":  [],
+      "max_flower_level":  0,
+      "min_maturity_minutes":  0,
+      "min_replant_minutes":  0
+    },
+    "red_packet_enabled":  false,
+    "forest_enabled":  false
+  },
+  "activity":  {
+    "cyclic_note":  {
+      "enabled":  false,
+      "auto_claim_task_rewards":  false,
+      "auto_claim_progress_boxes":  false,
+      "satisfy_tasks":  false
+    },
+    "cyclic_story":  {
+      "enabled":  false,
+      "auto_claim_order_rewards":  false,
+      "auto_claim_progress_boxes":  false,
+      "max_score":  "0"
+    }
+  },
+  "decision_interval_seconds":  4,
+  "schema_version":  1
+}

@@ -7,10 +7,13 @@ import com.mygardenworld.v1.AccountStatusBatch
 import com.mygardenworld.v1.AlipayLoginProgress
 import com.mygardenworld.v1.AlipayLoginStatus
 import com.mygardenworld.v1.LoadAccountRedeemAttempts
+import com.mygardenworld.v1.LoadUserNotifications
 import com.mygardenworld.v1.LoadWorkspaceLogs
+import com.mygardenworld.v1.MaintenanceView
 import com.mygardenworld.v1.OpenWorkspace
 import com.mygardenworld.v1.ResyncWorkspace
 import com.mygardenworld.v1.SelectWorkspaceAccount
+import com.mygardenworld.v1.UserNotificationsView
 import com.mygardenworld.v1.WatchAlipayLogin
 import com.mygardenworld.v1.WorkspaceClientFrame
 import com.mygardenworld.v1.WorkspaceError
@@ -46,6 +49,8 @@ sealed interface WorkspaceEvent {
     data class Logs(val page: WorkspaceLogPage) : WorkspaceEvent
     data class RedeemAttempts(val page: AccountRedeemAttemptPage) : WorkspaceEvent
     data class AlipayLogin(val progress: AlipayLoginProgress) : WorkspaceEvent
+    data class Notifications(val view: UserNotificationsView) : WorkspaceEvent
+    data class Maintenance(val view: MaintenanceView) : WorkspaceEvent
     data class Error(val error: WorkspaceError) : WorkspaceEvent
     data object AuthExpired : WorkspaceEvent
 }
@@ -131,6 +136,9 @@ class WorkspaceSocket(
             )
         }
     }
+
+    /** Requests one page of the signed-in user's notification settings and deliveries. */
+    fun loadNotifications(beforeId: Long = 0): Boolean = send { setLoadNotifications(LoadUserNotifications.newBuilder().setBeforeId(beforeId)) }
 
     fun watchAlipayLogin(loginId: String) {
         if (loginId.isBlank()) return
@@ -260,6 +268,8 @@ class WorkspaceSocket(
                 }
                 emit(WorkspaceEvent.AlipayLogin(frame.alipayLogin))
             }
+            WorkspaceServerFrame.PayloadCase.NOTIFICATIONS -> emit(WorkspaceEvent.Notifications(frame.notifications))
+            WorkspaceServerFrame.PayloadCase.MAINTENANCE -> emit(WorkspaceEvent.Maintenance(frame.maintenance))
             WorkspaceServerFrame.PayloadCase.ERROR -> emit(WorkspaceEvent.Error(frame.error))
             else -> Unit
         }

@@ -11,6 +11,7 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.LocalFlorist
 import androidx.compose.material.icons.filled.Receipt
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Row
@@ -53,6 +54,7 @@ fun WorkspaceScreen(viewModel: WorkspaceViewModel, onBack: () -> Unit) {
     val workspace by viewModel.workspace.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableStateOf(WorkspaceTab.BASIC) }
     var more by rememberSaveable { mutableStateOf(MoreTab.UNION) }
+    var showReauth by rememberSaveable { mutableStateOf(false) }
     val status = workspace.statuses[viewModel.accountId]
     val account = screen.account
 
@@ -73,6 +75,7 @@ fun WorkspaceScreen(viewModel: WorkspaceViewModel, onBack: () -> Unit) {
                 },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回账号列表") } },
                 actions = {
+                    IconButton(onClick = viewModel::resync, enabled = workspace.online && Format.accountConnected(account, status)) { Icon(Icons.Filled.Refresh, contentDescription = "刷新") }
                     val (label, tone) = Format.healthBadge(account, status)
                     Badge(label, tone, Modifier.padding(end = 6.dp))
                     ConnectionDot(workspace.connection)
@@ -108,6 +111,20 @@ fun WorkspaceScreen(viewModel: WorkspaceViewModel, onBack: () -> Unit) {
         Column(Modifier.fillMaxSize().padding(padding)) {
             val banner = screen.error.ifBlank { workspace.lastError?.message.orEmpty() }
             if (banner.isNotBlank()) ErrorBanner(banner, Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+            MaintenanceBanner(workspace.maintenance, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+            val deleting = Format.accountDeleting(account, status)
+            if (deleting) {
+                DeletionProgressCard(status?.deletionFailed ?: account?.deletionFailed ?: false, status?.takeIf { it.hasDeletionProgress() }?.deletionProgress, Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+            } else {
+                val issues = Format.statusIssues(status)
+                val onSettings = tab == WorkspaceTab.MORE && more == MoreTab.SETTINGS
+                AccountIssuesBanner(
+                    issues = issues,
+                    hint = restrictionHint(issues, screen.policy),
+                    onOpenSettings = if (onSettings) null else ({ tab = WorkspaceTab.MORE; more = MoreTab.SETTINGS }),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                )
+            }
             val settings = tab == WorkspaceTab.MORE && more == MoreTab.SETTINGS
             if (workspace.state == null && !settings && tab != WorkspaceTab.LOGS) {
                 com.silkage.mygardenworld.core.ui.LoadingBox(if (workspace.online) "等待账号快照…" else "等待连接服务端…")
@@ -123,13 +140,14 @@ fun WorkspaceScreen(viewModel: WorkspaceViewModel, onBack: () -> Unit) {
                 WorkspaceTab.ORDERS -> OrdersTab(workspace, viewModel.catalog)
                 WorkspaceTab.LOGS -> LogsTab(workspace, onLoadMore = viewModel::loadOlderLogs)
                 WorkspaceTab.MORE -> when (more) {
-                    MoreTab.UNION -> UnionTab(workspace, screen.policy, viewModel.catalog, screen.busyRaceTaskId, screen.raceMessage, viewModel::takeRaceTask)
+                    MoreTab.UNION -> UnionTab(workspace, screen.policy, viewModel.catalog, screen.busyRaceTaskId, screen.busyRaceDeleteId, screen.raceMessage, viewModel::takeRaceTask, viewModel::deleteRaceTask)
                     MoreTab.ACTIVITIES -> ActivitiesTab(workspace, viewModel.catalog)
                     MoreTab.WAREHOUSE -> WarehouseTab(workspace, viewModel.catalog)
                     MoreTab.STATISTICS -> StatisticsTab(workspace)
-                    MoreTab.SETTINGS -> SettingsTab(viewModel, screen, workspace)
+                    MoreTab.SETTINGS -> SettingsTab(viewModel, screen, workspace, onReauthenticate = { showReauth = true })
                 }
             }
         }
     }
+    if (showReauth) ReauthDialog(viewModel, screen, workspace.online, onDismiss = { showReauth = false })
 }

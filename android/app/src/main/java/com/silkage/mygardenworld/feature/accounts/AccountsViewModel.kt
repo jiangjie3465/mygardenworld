@@ -7,6 +7,7 @@ import com.mygardenworld.v1.AlipayLoginStatus
 import com.mygardenworld.v1.User
 import com.silkage.mygardenworld.AppContainer
 import com.silkage.mygardenworld.core.network.ConnectException
+import com.silkage.mygardenworld.core.ui.Format
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -20,6 +21,7 @@ data class AccountsUiState(
     val loading: Boolean = false,
     val error: String = "",
     val busyAccountId: Long = 0,
+    val bulkAction: String = "",
     val creating: Boolean = false,
     val qr: AlipayQr? = null,
     val createdAccountId: Long = 0,
@@ -32,6 +34,18 @@ class AccountsViewModel(private val container: AppContainer) : ViewModel() {
 
     init {
         refresh()
+        viewModelScope.launch {
+            // Deletion finishes in the background; the account leaves the
+            // status batch when cleanup commits, so re-list once it is gone.
+            val relisted = HashSet<Long>()
+            container.workspace.state.collect { ws ->
+                if (!ws.online || ws.statuses.isEmpty()) return@collect
+                val gone = _state.value.accounts.filter { account ->
+                    account.deletionPending && ws.statuses[account.id] == null && relisted.add(account.id)
+                }
+                if (gone.isNotEmpty()) refresh()
+            }
+        }
         viewModelScope.launch {
             container.workspace.state.collect { ws ->
                 val progress = ws.alipay ?: return@collect
@@ -62,26 +76,55 @@ class AccountsViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    /** Web parity: start is ConnectAccount and pause/stop is DisconnectAccount; failures are shown, never swallowed. */
     fun toggleAutomation(account: Account, online: Boolean) = run(account.id) {
-        if (online) {
-            container.accounts.disableAutomation(account.id)
-            container.accounts.disconnect(account.id)
-        } else {
-            container.accounts.enableAutomation(account.id)
-            runCatching { container.accounts.connect(account.id) }
+        if (online) container.accounts.disconnect(account.id) else container.accounts.connect(account.id)
+    }
+
+    fun stop(account: Account) = run(account.id) { container.accounts.disconnect(account.id) }
+
+    /** Starts or pauses every eligible account sequentially, collecting per-account failures. */
+    /** [only] limits the batch to the selected accounts; null means every account. */
+    fun bulk(start: Boolean, only: Set<Long>? = null) {
+        if (_state.value.bulkAction.isNotBlank() || _state.value.busyAccountId != 0L) return
+        val statuses = container.workspace.state.value.statuses
+        val targets = _state.value.accounts.filter { account ->
+            (only == null || account.id in only) &&
+                !Format.accountDeleting(account, statuses[account.id]) && Format.accountConnected(account, statuses[account.id]) != start
+        }
+        if (targets.isEmpty()) return
+        viewModelScope.launch {
+            _state.update { it.copy(bulkAction = if (start) "start" else "pause", error = "") }
+            val failures = ArrayList<String>()
+            for (account in targets) {
+                _state.update { it.copy(busyAccountId = account.id) }
+                try {
+                    if (start) container.accounts.connect(account.id) else container.accounts.disconnect(account.id)
+                } catch (e: ConnectException) {
+                    failures += "${Format.accountNickname(account)}: ${e.userMessage}"
+                }
+            }
+            container.socket.resync()
+            _state.update {
+                it.copy(
+                    bulkAction = "",
+                    busyAccountId = 0,
+                    error = when {
+                        failures.isEmpty() -> ""
+                        failures.size == 1 -> failures.first()
+                        else -> "${failures.size} 个账号失败：" + failures.take(3).joinToString("；") + if (failures.size > 3) "…" else ""
+                    },
+                )
+            }
+            refresh()
         }
     }
 
-    fun stop(account: Account) = run(account.id) {
-        container.accounts.disableAutomation(account.id)
-        container.accounts.disconnect(account.id)
-    }
-
-    fun createIos(username: String, password: String, onDone: (Boolean) -> Unit) {
+    fun createIos(username: String, password: String, initialPolicyAccountId: Long, onDone: (Boolean) -> Unit) {
         viewModelScope.launch {
             _state.update { it.copy(creating = true, error = "") }
             try {
-                val response = container.accounts.createIos(username, password)
+                val response = container.accounts.createIos(username, password, initialPolicyAccountId)
                 _state.update { it.copy(creating = false, error = response.loginError, createdAccountId = response.account.id) }
                 refresh()
                 onDone(true)
@@ -92,11 +135,11 @@ class AccountsViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    fun startAlipay() {
+    fun startAlipay(initialPolicyAccountId: Long) {
         viewModelScope.launch {
             _state.update { it.copy(creating = true, error = "", qr = null) }
             try {
-                val response = container.accounts.startAlipayLogin()
+                val response = container.accounts.startAlipayLogin(initialPolicyAccountId = initialPolicyAccountId)
                 _state.update { it.copy(creating = false, qr = AlipayQr(response.loginId, response.qrContent, response.status, "")) }
                 container.socket.watchAlipayLogin(response.loginId)
             } catch (e: ConnectException) {

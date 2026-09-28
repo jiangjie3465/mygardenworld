@@ -4,7 +4,22 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -20,6 +35,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.mygardenworld.v1.UserRole
 import com.silkage.mygardenworld.core.auth.AuthState
 import com.silkage.mygardenworld.core.ui.LoadingBox
 import com.silkage.mygardenworld.core.ui.MyGardenWorldTheme
@@ -28,6 +44,8 @@ import com.silkage.mygardenworld.feature.accounts.AccountsViewModel
 import com.silkage.mygardenworld.feature.auth.LoginScreen
 import com.silkage.mygardenworld.feature.admin.AdminScreen
 import com.silkage.mygardenworld.feature.admin.AdminViewModel
+import com.silkage.mygardenworld.feature.notifications.NotificationsScreen
+import com.silkage.mygardenworld.feature.notifications.NotificationsViewModel
 import com.silkage.mygardenworld.feature.redeem.RedeemScreen
 import com.silkage.mygardenworld.feature.redeem.RedeemViewModel
 import com.silkage.mygardenworld.feature.settings.SessionsScreen
@@ -53,12 +71,42 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun AppRoot(container: AppContainer) {
+    val scope = rememberCoroutineScope()
     val auth by container.auth.state.collectAsStateWithLifecycle()
-    LaunchedEffect(Unit) { if (container.auth.state.value is AuthState.Restoring) container.auth.restore() }
+    var restoreFailures by remember { mutableIntStateOf(0) }
+    var retryNonce by remember { mutableIntStateOf(0) }
+    // A transport failure keeps the stored refresh token and stays Restoring;
+    // retry with backoff instead of leaving the user on a spinner forever.
+    LaunchedEffect(retryNonce) {
+        while (container.auth.state.value is AuthState.Restoring) {
+            if (container.auth.restore()) break
+            if (container.auth.state.value !is AuthState.Restoring) break
+            restoreFailures++
+            delay((2_000L shl (restoreFailures - 1).coerceAtMost(4)).coerceAtMost(30_000L))
+        }
+    }
     when (val state = auth) {
-        is AuthState.Restoring -> LoadingBox("正在恢复登录…")
+        is AuthState.Restoring -> RestoringScreen(
+            failures = restoreFailures,
+            onRetry = { retryNonce++ },
+            onLogout = { scope.launch { container.auth.logout() } },
+        )
         is AuthState.SignedOut -> LoginScreen(container.auth, container.accounts, state.reason)
         is AuthState.SignedIn -> SignedInNav(container)
+    }
+}
+
+@Composable
+private fun RestoringScreen(failures: Int, onRetry: () -> Unit, onLogout: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+        LoadingBox("正在恢复登录…")
+        if (failures > 0) {
+            Text("暂时无法连接服务端，已重试 $failures 次，将自动继续重试。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 12.dp)) {
+                OutlinedButton(onClick = onLogout) { Text("退出登录") }
+                Button(onClick = onRetry) { Text("立即重试") }
+            }
+        }
     }
 }
 
@@ -76,9 +124,24 @@ private fun SignedInNav(container: AppContainer) {
             val vm: WorkspaceViewModel = viewModel(key = "workspace-$accountId", factory = factory { WorkspaceViewModel(container, accountId) })
             WorkspaceScreen(vm, onBack = { nav.popBackStack() })
         }
-        composable("settings") { SettingsScreen(container, onBack = { nav.popBackStack() }, onOpenSessions = { nav.navigate("sessions") }, onOpenAdmin = { nav.navigate("admin") }, onOpenRedeem = { nav.navigate("redeem") }) }
+        composable("settings") {
+            SettingsScreen(
+                container,
+                onBack = { nav.popBackStack() },
+                onOpenSessions = { nav.navigate("sessions") },
+                onOpenAdmin = { nav.navigate("admin") },
+                onOpenRedeem = { nav.navigate("redeem") },
+                onOpenNotifications = { nav.navigate("notifications") },
+            )
+        }
+        composable("notifications") {
+            val vm: NotificationsViewModel = viewModel(factory = factory { NotificationsViewModel(container) })
+            NotificationsScreen(vm, onBack = { nav.popBackStack() })
+        }
         composable("redeem") {
-            val vm: RedeemViewModel = viewModel(factory = factory { RedeemViewModel(container) })
+            val auth by container.auth.state.collectAsStateWithLifecycle()
+            val isAdmin = (auth as? AuthState.SignedIn)?.user?.role == UserRole.USER_ROLE_ADMIN
+            val vm: RedeemViewModel = viewModel(key = "redeem-$isAdmin", factory = factory { RedeemViewModel(container, isAdmin) })
             val workspace by container.workspace.state.collectAsStateWithLifecycle()
             RedeemScreen(vm, workspace.online, onBack = { nav.popBackStack() })
         }
