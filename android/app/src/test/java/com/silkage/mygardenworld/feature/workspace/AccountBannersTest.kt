@@ -20,16 +20,18 @@ class AccountBannersTest {
     }
 
     @Test
-    fun `names each missing switch`() {
-        val both = restrictionHint(restricted, policy(automation = false, freshLogin = false))!!
-        assertTrue(both, both.contains("自动化和「5000 异常后允许重新登录」"))
-        val fresh = restrictionHint(restricted, policy(automation = true, freshLogin = false))!!
-        assertTrue(fresh, fresh.contains("开启「5000 异常后允许重新登录」") && !fresh.contains("自动化和"))
+    fun `manual start recovers when the fresh login switch is off`() {
+        for (automation in listOf(true, false)) {
+            val hint = restrictionHint(restricted, policy(automation = automation, freshLogin = false))!!
+            assertTrue(hint, hint.contains("手动启动账号") && hint.contains("开启「5000 异常后允许重新登录」"))
+            assertTrue(hint, !hint.contains("不会解除保护"))
+        }
     }
 
     @Test
     fun `explains waiting when recovery is already authorized or policy unknown`() {
         assertTrue(restrictionHint(restricted, policy(automation = true, freshLogin = true))!!.contains("等待冷却结束"))
-        assertTrue(restrictionHint(restricted, null)!!.contains("启动／暂停不会解除保护"))
+        assertTrue(restrictionHint(restricted, policy(automation = false, freshLogin = true))!!.contains("启用自动化"))
+        assertTrue(restrictionHint(restricted, null)!!.contains("手动启动"))
     }
 }

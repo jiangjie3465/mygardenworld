@@ -30,19 +30,19 @@ import com.silkage.mygardenworld.core.ui.CloudColors
 import com.silkage.mygardenworld.core.ui.Format
 
 /**
- * Recovery guidance for the 5000 request protection. Start/pause never resets
- * it, so when the saved policy cannot authorize the fresh login it needs, say
- * which switches to turn on instead of leaving the start button silent.
+ * Recovery guidance for the 5000 request protection. Start/pause does not end
+ * the cooldown, but an explicit start authorizes one fresh login for the
+ * current incident; the policy switch makes later incidents recover unattended.
  */
 fun restrictionHint(issues: List<String>, policy: Policy?): String? {
     if (issues.none { it.contains("5000") }) return null
-    if (policy == null) return "账号处于 5000 请求保护，启动／暂停不会解除保护，冷却结束后由服务端核验恢复。"
-    val missing = buildList {
-        if (!policy.automationEnabled) add("自动化")
-        if (!policy.basic.serverErrorFreshLoginEnabled) add("「5000 异常后允许重新登录」")
+    if (policy == null) return "账号处于 5000 请求保护，冷却结束后核验恢复；手动启动可允许本次使用一次重新认证。"
+    if (policy.basic.serverErrorFreshLoginEnabled) {
+        if (!policy.automationEnabled) return "账号处于 5000 请求保护，已允许冷却结束后重新认证；启用自动化后会在冷却结束时自动核验恢复。"
+        return "账号处于 5000 请求保护，已允许冷却结束后重新认证，请等待冷却结束后的自动核验。"
     }
-    if (missing.isEmpty()) return "账号处于 5000 请求保护，已允许冷却结束后重新认证；启动／暂停不会解除保护，请等待冷却结束后的自动核验。"
-    return "账号处于 5000 请求保护，启动／暂停不会解除保护。若缓存会话不可用，恢复需要重新认证，请开启${missing.joinToString("和")}并保存；重新认证可能挤下手机端。"
+    return "账号处于 5000 请求保护。若缓存会话不可用，手动启动账号（或启用自动化）后，冷却结束时会使用本次唯一一次重新认证恢复；" +
+        "开启「5000 异常后允许重新登录」并保存可让以后自动恢复。重新认证可能挤下手机端。"
 }
 
 @Composable
