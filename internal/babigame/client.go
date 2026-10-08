@@ -27,14 +27,21 @@ type Client struct {
 	closedCh chan struct{}
 
 	seq atomic.Int64
+	// lastRecvNano is the wall time of the last inbound frame, used by the
+	// heartbeat to tell a slow server from a silently dead connection.
+	lastRecvNano atomic.Int64
 
 	subMu                  sync.RWMutex
 	nsHandlers             map[string][]NamespaceHandler
 	binHandlers            []BinaryHandler
 	sessionExpiredHandlers []SessionExpiredHandler
 
-	// Heartbeat configuration.
-	HeartbeatInterval time.Duration
+	// Heartbeat configuration. HeartbeatTimeout bounds each heartbeat RPC;
+	// HeartbeatMaxMisses consecutive timed-out heartbeats with no inbound frame
+	// close the client so the owner's reconnect handling can take over.
+	HeartbeatInterval  time.Duration
+	HeartbeatTimeout   time.Duration
+	HeartbeatMaxMisses int
 
 	// DebugWriter, when non-nil, receives all WS frames (send + recv) as JSONL.
 	DebugWriter *DebugFrameWriter
@@ -65,6 +72,10 @@ type BinaryHandler func(items []json.RawMessage)
 // active websocket session was invalidated.
 type SessionExpiredHandler func(env WSResponseD)
 
+// ErrRPCTimeout reports that an RPC was written but no matching response
+// arrived before its timeout.
+var ErrRPCTimeout = errors.New("timeout")
+
 type rpcResult struct {
 	v   json.RawMessage
 	d   WSResponseD
@@ -85,12 +96,14 @@ type pendingRPC struct {
 // called before any RPC.
 func NewClient(session *Session) *Client {
 	return &Client{
-		Cfg:               session.Cfg,
-		Session:           session,
-		pending:           make(map[string]pendingRPC),
-		closedCh:          make(chan struct{}),
-		nsHandlers:        make(map[string][]NamespaceHandler),
-		HeartbeatInterval: 25 * time.Second,
+		Cfg:                session.Cfg,
+		Session:            session,
+		pending:            make(map[string]pendingRPC),
+		closedCh:           make(chan struct{}),
+		nsHandlers:         make(map[string][]NamespaceHandler),
+		HeartbeatInterval:  25 * time.Second,
+		HeartbeatTimeout:   10 * time.Second,
+		HeartbeatMaxMisses: 2,
 	}
 }
 
@@ -136,6 +149,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	}
 	c.conn = conn
 	c.mu.Unlock()
+	c.markReceived()
 	go c.reader()
 	if c.HeartbeatInterval > 0 {
 		go c.heartbeat()
@@ -230,7 +244,7 @@ func (c *Client) rpc(ctx context.Context, name string, args any, routeArg string
 		c.mu.Lock()
 		delete(c.pending, k)
 		c.mu.Unlock()
-		return nil, WSResponseD{}, fmt.Errorf("rpc %s: timeout after %s", name, timeout)
+		return nil, WSResponseD{}, fmt.Errorf("rpc %s: %w after %s", name, ErrRPCTimeout, timeout)
 	case <-ctx.Done():
 		c.mu.Lock()
 		delete(c.pending, k)
@@ -257,6 +271,7 @@ func (c *Client) reader() {
 		if err != nil {
 			return
 		}
+		c.markReceived()
 		switch typ {
 		case websocket.MessageText:
 			if c.DebugWriter != nil {
@@ -346,19 +361,48 @@ func (c *Client) fireSessionExpired(d WSResponseD) {
 	}
 }
 
+func (c *Client) markReceived() { c.lastRecvNano.Store(time.Now().UnixNano()) }
+
+func (c *Client) receivedSince(t time.Time) bool {
+	return c.lastRecvNano.Load() >= t.UnixNano()
+}
+
 // heartbeat sends usr.heartTick on a tick. The server returns updated
 // inventory deltas in namespace 7 - useful even if we never need to read them.
+//
+// It is also the liveness probe: a half-open socket keeps Read blocked and
+// Closed false forever while every RPC times out, so the runner would look
+// connected but never recover. Only heartbeats that were sent and timed out
+// with no inbound frame count; guard rejections (pacing, maintenance) do not.
 func (c *Client) heartbeat() {
 	ticker := time.NewTicker(c.HeartbeatInterval)
 	defer ticker.Stop()
+	timeout := c.HeartbeatTimeout
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	misses := 0
 	for {
 		select {
 		case <-c.closedCh:
 			return
 		case <-ticker.C:
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			_, _ = CallRPC[clientproto.StateDelta](ctx, NewRPCClient(c, c.Session), clientproto.RPCUsrHeartTick, clientproto.UsrHeartTickRequest{}, WithTimeout(10*time.Second))
+			sentAt := time.Now()
+			// The outer deadline leaves room for request guards, so only the
+			// RPC's own post-send timer can produce ErrRPCTimeout.
+			ctx, cancel := context.WithTimeout(context.Background(), 2*timeout)
+			_, err := CallRPC[clientproto.StateDelta](ctx, NewRPCClient(c, c.Session), clientproto.RPCUsrHeartTick, clientproto.UsrHeartTickRequest{}, WithTimeout(timeout))
 			cancel()
+			switch {
+			case c.receivedSince(sentAt):
+				misses = 0
+			case errors.Is(err, ErrRPCTimeout):
+				misses++
+				if c.HeartbeatMaxMisses > 0 && misses >= c.HeartbeatMaxMisses {
+					_ = c.Close()
+					return
+				}
+			}
 		}
 	}
 }

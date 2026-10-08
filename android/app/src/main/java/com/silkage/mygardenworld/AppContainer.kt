@@ -19,6 +19,7 @@ import com.silkage.mygardenworld.feature.admin.AdminRepository
 import com.silkage.mygardenworld.feature.notifications.NotificationsRepository
 import com.silkage.mygardenworld.feature.redeem.RedeemRepository
 import com.silkage.mygardenworld.feature.workspace.PolicyRepository
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -40,7 +41,9 @@ class AppContainer(private val application: Application) {
     val notifications = NotificationsRepository(auth.rpc)
     val sessions = SessionsRepository(auth.rpc) { auth.deviceId }
     val workspace = WorkspaceRepository()
-    val socket = WorkspaceSocket(scope, auth, http) { auth.rpc.baseUrl }
+    // Client pings detect a half-open socket (e.g. after a network switch);
+    // without them OkHttp waits forever and the workspace silently freezes.
+    val socket = WorkspaceSocket(scope, auth, http.newBuilder().pingInterval(20, TimeUnit.SECONDS).build()) { auth.rpc.baseUrl }
     @Volatile var catalog: Catalog = Catalog.EMPTY
         private set
 
