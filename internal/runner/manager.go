@@ -71,6 +71,18 @@ const (
 	StartSourceRedeemAutoConnect StartSource = "redeem_auto_connect"
 )
 
+// authorizesFreshRecovery reports whether the source is an explicit user
+// command to bring the account online. Background restores, redeem
+// auto-connects and one-off manual operations never authorize a login.
+func (s StartSource) authorizesFreshRecovery() bool {
+	switch s {
+	case StartSourceControlPanel, StartSourceAutomationEnable, StartSourceAlipayLogin:
+		return true
+	default:
+		return false
+	}
+}
+
 // RestoreReport summarizes one daemon startup auto-restore pass.
 type RestoreReport struct {
 	Eligible int
@@ -299,6 +311,9 @@ func (m *Manager) start(ctx context.Context, accountID int64, source StartSource
 			// Failure must not tear down a runner owned by an earlier command.
 			if err := r.enableAutomation(ctx); err != nil {
 				return nil, err
+			}
+			if source.authorizesFreshRecovery() {
+				r.grantManualFreshLogin()
 			}
 		}
 		return r, nil

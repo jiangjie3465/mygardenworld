@@ -72,6 +72,12 @@ func (r *Runner) start(ctx context.Context, activate bool) error {
 	if err := r.loadAccountSafety(ctx); err != nil {
 		return fail(err)
 	}
+	r.mu.RLock()
+	source := r.startSource
+	r.mu.RUnlock()
+	if source.authorizesFreshRecovery() {
+		r.grantManualFreshLogin()
+	}
 	// Publish explicit activation before choosing a protected recovery route.
 	// Otherwise a paused account started after the deadline still has its old
 	// disabled policy here and incorrectly tries the cache before fresh auth.
@@ -204,7 +210,7 @@ func (r *Runner) connectFresh(ctx context.Context, username, password string) (*
 	}
 	if s, _ := r.accountSafetySnapshot(); s.RestrictionCode == 5000 {
 		r.emit(Event{Kind: "account_recovery_authentication", Category: "account", Domain: "account.request", Action: "authenticating",
-			Label: "账号恢复认证", Message: "5000 保护冷却已结束，按已启用设置跳过旧会话，尝试本次唯一的新认证；额度已持久化，失败也不会重试新认证", Level: "warn"})
+			Label: "账号恢复认证", Message: "5000 保护冷却已结束，按已启用设置或手动启动跳过旧会话，尝试本次唯一的新认证；额度已持久化，失败也不会重试新认证", Level: "warn"})
 	}
 	var (
 		session *babigame.Session

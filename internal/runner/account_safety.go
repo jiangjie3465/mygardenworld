@@ -17,6 +17,11 @@ type accountSafetyState struct {
 	safetyLoaded   bool
 	safetyRevision uint64
 	serverFailures []serverFailure
+	// manualFreshLogin records an explicit user connect/enable command made
+	// during a 5000 incident. It stands in for the fresh-login opt-in for that
+	// incident only; cooldown, the per-incident attempt and the durable 30
+	// minute budget still apply.
+	manualFreshLogin bool
 }
 
 func (r *Runner) loadAccountSafety(ctx context.Context) error {

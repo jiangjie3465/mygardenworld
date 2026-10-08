@@ -240,3 +240,52 @@ func TestProtectedRestartCommitsActivationBeforeSelectingRecovery(t *testing.T) 
 		})
 	}
 }
+
+// An expired server session during 5000 protection can only recover through
+// fresh authentication. With the opt-in switch off, an explicit connect/enable
+// command must authorize it for the current incident; background starts must not.
+func TestExplicitStartAuthorizesFreshRecoveryForCurrentIncident(t *testing.T) {
+	tests := []struct {
+		source StartSource
+		want   bool
+	}{
+		{StartSourceControlPanel, true},
+		{StartSourceAutomationEnable, true},
+		{StartSourceRedeemAutoConnect, false},
+		{StartSourceManualOperation, false},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.source), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				m, fixture, _ := startupCommitFixture(t)
+				p := fixture.Policy()
+				p.AutomationEnabled = false
+				p.Basic.ServerErrorFreshLoginEnabled = false
+				raw, err := policycfg.ToJSON(p)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := m.db.SavePolicyJSON(t.Context(), fixture.account.ID, raw); err != nil {
+					t.Fatal(err)
+				}
+				safety := store.AccountRequestSafety{RestrictionCode: 5000, RestrictionAttempts: 1, RestrictedUntilMS: time.Now().Add(-time.Minute).UnixMilli()}
+				if err := m.db.SaveAccountRestriction(t.Context(), fixture.account.ID, safety); err != nil {
+					t.Fatal(err)
+				}
+				started, err := m.StartAutomation(t.Context(), fixture.account.ID, tt.source, true)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := started.freshRecoveryEligible(time.Now()); got != tt.want {
+					t.Fatalf("fresh recovery eligible=%v, want %v", got, tt.want)
+				}
+				if got := started.checkFreshRecoveryAuthorization(t.Context()) == nil; got != tt.want {
+					t.Fatalf("authorization=%v, want %v", got, tt.want)
+				}
+				if err := m.PauseAutomation(t.Context(), fixture.account.ID, true); err != nil {
+					t.Fatal(err)
+				}
+			})
+		})
+	}
+}

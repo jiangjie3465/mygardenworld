@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	pb "github.com/SilkageNet/mygardenworld/gen/mygardenworld/v1"
 	"github.com/SilkageNet/mygardenworld/internal/babigame"
 	"github.com/SilkageNet/mygardenworld/internal/babigame/clientproto"
 	"github.com/SilkageNet/mygardenworld/internal/state"
@@ -29,7 +30,39 @@ func freshRecoveryAvailable(s store.AccountRequestSafety, now time.Time) bool {
 func (r *Runner) freshRecoveryEligible(now time.Time) bool {
 	p := r.Policy()
 	s, _ := r.accountSafetySnapshot()
-	return p.GetAutomationEnabled() && p.GetBasic().GetServerErrorFreshLoginEnabled() && freshRecoveryAvailable(s, now)
+	return p.GetAutomationEnabled() && r.freshRecoveryOptedIn(p) && freshRecoveryAvailable(s, now)
+}
+
+// freshRecoveryOptedIn is the policy switch or an explicit user command made
+// during the current 5000 incident. Without either, a session the server has
+// expired could never recover: the cache is rejected and fresh auth refused.
+func (r *Runner) freshRecoveryOptedIn(p *pb.Policy) bool {
+	if p.GetBasic().GetServerErrorFreshLoginEnabled() {
+		return true
+	}
+	r.safetyMu.Lock()
+	defer r.safetyMu.Unlock()
+	return r.manualFreshLogin
+}
+
+// grantManualFreshLogin authorizes fresh authentication for the active 5000
+// incident after an explicit connect/enable command. Outside an incident it is
+// a no-op so a stale grant cannot authorize a later, unrelated incident.
+func (r *Runner) grantManualFreshLogin() {
+	r.safetyMu.Lock()
+	if r.safety.RestrictionCode != 5000 || r.manualFreshLogin {
+		r.safetyMu.Unlock()
+		return
+	}
+	r.manualFreshLogin = true
+	until := r.safety.RestrictedUntilMS
+	r.safetyMu.Unlock()
+	message := "已收到手动启动，5000 保护冷却结束后允许本次事件使用一次新认证登录"
+	if until > time.Now().UnixMilli() {
+		message += fmt.Sprintf("（%s 后）", time.UnixMilli(until).Local().Format("01/02 15:04:05"))
+	}
+	r.emit(Event{Kind: "account_recovery_authentication", Category: "account", Domain: "account.request", Action: "authorized",
+		Label: "账号恢复认证", Message: message, Level: "info"})
 }
 
 // Reserve at the last boundary before channel authentication. Never let cache
@@ -44,7 +77,7 @@ func (r *Runner) reserveFreshRecovery(ctx context.Context, now time.Time) error 
 	if r.safety.RestrictionCode != 5000 {
 		return nil
 	}
-	if !p.GetAutomationEnabled() || !p.GetBasic().GetServerErrorFreshLoginEnabled() || !freshRecoveryAvailable(r.safety, now) {
+	if !p.GetAutomationEnabled() || (!p.GetBasic().GetServerErrorFreshLoginEnabled() && !r.manualFreshLogin) || !freshRecoveryAvailable(r.safety, now) {
 		return fmt.Errorf("5000 保护中未获准重新认证（需开启自动化和独立开关、冷却已结束，且本次未尝试、距上次至少 30 分钟）；可检查设置后手动登录")
 	}
 	if r.db == nil {
@@ -72,7 +105,7 @@ func (r *Runner) checkFreshRecoveryAuthorization(ctx context.Context) error {
 	}
 	s, _ := r.accountSafetySnapshot()
 	p := r.Policy()
-	if s.RestrictionCode == 5000 && (!p.GetAutomationEnabled() || !p.GetBasic().GetServerErrorFreshLoginEnabled()) {
+	if s.RestrictionCode == 5000 && (!p.GetAutomationEnabled() || !r.freshRecoveryOptedIn(p)) {
 		return fmt.Errorf("自动化或 5000 重新登录开关已关闭，取消恢复认证")
 	}
 	return nil

@@ -257,6 +257,7 @@ func (r *Runner) clearAccountRestriction(revision uint64) error {
 	}
 	r.safety = next
 	r.serverFailures = nil
+	r.manualFreshLogin = false
 	r.safetyMu.Unlock()
 	r.emit(Event{Kind: "account_request_resumed", Category: "account", Domain: "account.request", Action: "resumed",
 		Label: "账号请求保护", Message: "冷却后状态验证成功，恢复账号游戏请求", Level: "info"})

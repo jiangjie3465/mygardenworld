@@ -277,3 +277,38 @@ func TestAutomaticReconnectPreservesAmbiguousPaidFence(t *testing.T) {
 		t.Fatal("reconnect erased paid fence")
 	}
 }
+
+func TestManualFreshLoginGrantIsScopedToOneIncident(t *testing.T) {
+	_, r, _ := startupCommitFixture(t)
+	now := time.Now()
+	p := automation.DefaultPolicy()
+	p.AutomationEnabled = true
+	r.SetPolicy(p)
+
+	r.grantManualFreshLogin()
+	if r.manualFreshLogin {
+		t.Fatal("grant outside a 5000 incident was kept")
+	}
+
+	r.safety = store.AccountRequestSafety{RestrictionCode: 5000, RestrictionAttempts: 1, RestrictedUntilMS: now.Add(-time.Second).UnixMilli()}
+	if err := r.db.SaveAccountRestriction(t.Context(), r.account.ID, r.safety); err != nil {
+		t.Fatal(err)
+	}
+	if r.freshRecoveryEligible(now) {
+		t.Fatal("recovery allowed without opt-in or manual start")
+	}
+	r.grantManualFreshLogin()
+	if err := r.reserveFreshRecovery(t.Context(), now); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.reserveFreshRecovery(t.Context(), now.Add(time.Hour)); err == nil {
+		t.Fatal("manual grant authenticated twice in one incident")
+	}
+	if err := r.clearAccountRestriction(0); err != nil {
+		t.Fatal(err)
+	}
+	r.safety = store.AccountRequestSafety{RestrictionCode: 5000, RestrictionAttempts: 1, RestrictedUntilMS: now.Add(time.Hour).UnixMilli(), LastFreshLoginMS: r.safety.LastFreshLoginMS}
+	if r.freshRecoveryEligible(now.Add(2 * time.Hour)) {
+		t.Fatal("grant leaked into a later incident")
+	}
+}
